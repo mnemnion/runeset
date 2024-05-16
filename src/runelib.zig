@@ -30,16 +30,16 @@ pub const CodeUnit = packed struct(u8) {
         if (self.body == 63) {
             return std.math.maxInt(u64);
         } else {
-            return (@as(u64, 1) << self.body + 1) - 1;
+            return (@as(u64, 1) << self.body) - 1;
         }
     }
 
     /// Mask off all bits <= cu.body
     pub fn lowMask(self: *const CodeUnit) u64 {
-        if (self.body == 0)
-            return std.math.maxInt(u64)
+        if (self.body == 63)
+            return 0
         else
-            return ~((@as(u64, 1) << (self.body)) - 1);
+            return ~((@as(u64, 1) << (self.body + 1)) - 1);
     }
 };
 
@@ -63,7 +63,7 @@ pub const Mask = struct {
     }
 
     pub fn add(self: *Mask, cu: CodeUnit) void {
-        self.m <<= cu.body;
+        self.m |= cu.inMask();
     }
 
     pub fn isIn(self: *const Mask, cu: CodeUnit) bool {
@@ -71,10 +71,23 @@ pub const Mask = struct {
         return self.m | m == self.m;
     }
 
-    pub fn inHiOffset(self: *const Mask, cu: CodeUnit) ?u64 {
+    /// Return number of bytes lower than cu.body in mask,
+    /// if cu inhabits the mask.  Otherwise return null.
+    pub fn lowerThan(self: *const Mask, cu: CodeUnit) ?u64 {
         if (self.isIn(cu)) {
             const m = cu.hiMask();
-            return m; // TODO obviously not correct...
+            return @popCount(self.m & m);
+        } else {
+            return null;
+        }
+    }
+
+    /// Return number of bytes higher than cu.body in mask,
+    /// if cu inhabits the mask.  Otherwise return null.
+    pub fn higherThan(self: *const Mask, cu: CodeUnit) ?u64 {
+        if (self.isIn(cu)) {
+            const m = cu.lowMask();
+            return @popCount(self.m & m);
         } else {
             return null;
         }
@@ -96,22 +109,43 @@ test split {
     try expectEqual(lead.kind, .lead);
     const follow = split(lambda[1]);
     try expectEqual(follow.kind, .follow);
-    const C = split('C');
     // mask property check
     for (0..255) |i| {
         const cu = split(@truncate(i));
-        try expectEqual(cu.lowMask() & cu.hiMask(), cu.inMask());
+        try expectEqual(cu.lowMask() & cu.hiMask(), 0);
+        if (cu.body % 63 != 0) // low mask for 63 is all zeros
+            try expect(cu.lowMask() > cu.hiMask());
     }
-    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ C.body, C.hiMask() });
-    std.debug.print("       lowMask: 0b{b:0>64}\n", .{C.lowMask()});
-    std.debug.print("        inMask: 0b{b:0>64}\n", .{C.inMask()});
-    const Qmark = split('?');
-    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ Qmark.body, Qmark.hiMask() });
-    std.debug.print("        lowMask: 0b{b:0>64}\n", .{Qmark.lowMask()});
-    const six_three = split('O');
-    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ six_three.body, six_three.hiMask() });
-    std.debug.print("        lowMask: 0b{b:0>64}\n", .{six_three.lowMask()});
-    const at = split('@');
-    std.debug.print("body: {d} lowMask: 0b{b:0>64}\n", .{ at.body, at.lowMask() });
-    std.debug.print("         hiMask: 0b{b:0>64}\n", .{at.hiMask()});
 }
+
+test "mask tests" {
+    var mask = Mask.toMask(0);
+    const B = split('B');
+    mask.add(B);
+    try expect(mask.isIn(B));
+    const D = split('D');
+    mask.add(D);
+    mask.add(split('Z'));
+    try expectEqual(mask.higherThan(B).?, 2);
+    try expectEqual(mask.lowerThan(D), 1);
+    try expectEqual(mask.lowerThan(split('?')), null);
+}
+
+//
+//test "bleh" {
+//    const C = split('C');
+//    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ C.body, C.hiMask() });
+//    std.debug.print("       lowMask: 0b{b:0>64}\n", .{C.lowMask()});
+//    std.debug.print("        inMask: 0b{b:0>64}\n", .{C.inMask()});
+//    const Qmark = split('?');
+//    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ Qmark.body, Qmark.hiMask() });
+//    std.debug.print("        lowMask: 0b{b:0>64}\n", .{Qmark.lowMask()});
+//    const six_three = split('O');
+//    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ six_three.body, six_three.hiMask() });
+//    std.debug.print("        lowMask: 0b{b:0>64}\n", .{six_three.lowMask()});
+//    const at = split('@');
+//    std.debug.print("body: {d} lowMask: 0b{b:0>64}\n", .{ at.body, at.lowMask() });
+//    std.debug.print("         hiMask: 0b{b:0>64}\n", .{at.hiMask()});
+//    try expect(3 == 3);
+//}
+//
