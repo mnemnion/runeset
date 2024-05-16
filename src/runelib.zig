@@ -19,6 +19,28 @@ pub const RuneKind = enum(u2) {
 pub const CodeUnit = packed struct(u8) {
     body: u6,
     kind: RuneKind,
+
+    /// Mask to check presence
+    pub fn inMask(self: *const CodeUnit) u64 {
+        return @as(u64, 1) << self.body;
+    }
+
+    /// Mask off all bits >= cu.body
+    pub fn hiMask(self: *const CodeUnit) u64 {
+        if (self.body == 63) {
+            return std.math.maxInt(u64);
+        } else {
+            return (@as(u64, 1) << self.body + 1) - 1;
+        }
+    }
+
+    /// Mask off all bits <= cu.body
+    pub fn lowMask(self: *const CodeUnit) u64 {
+        if (self.body == 0)
+            return std.math.maxInt(u64)
+        else
+            return ~((@as(u64, 1) << (self.body)) - 1);
+    }
 };
 
 /// Cast raw byte to CodeUnit
@@ -26,15 +48,38 @@ pub inline fn split(b: u8) CodeUnit {
     return @bitCast(b);
 }
 
-/// Cast raw u64 to IntegerBitSet(64)
-pub inline fn wordmask(w: u64) IntegerBitSet(64) {
-    return @bitCast(w);
-}
+/// Bitmask for runesets
+///
+/// We define our own bitset because the operations we need to
+/// perform only overlap with IntegerBitSet for trivial one-liners,
+/// and furthermore, we need nondestructive versions of the basic
+/// operations, which aren't a part of the IntegerBitSet interface.
+///
+pub const Mask = struct {
+    m: u64,
 
-/// Downcast IntegerBitSet(64) to underlying word
-pub inline fn unwordmask(m: IntegerBitSet(64)) u64 {
-    return @bitCast(m);
-}
+    pub fn toMask(w: u64) Mask {
+        return Mask{ .m = w };
+    }
+
+    pub fn add(self: *Mask, cu: CodeUnit) void {
+        self.m <<= cu.body;
+    }
+
+    pub fn isIn(self: *const Mask, cu: CodeUnit) bool {
+        const m = cu.inMask();
+        return self.m | m == self.m;
+    }
+
+    pub fn inHiOffset(self: *const Mask, cu: CodeUnit) ?u64 {
+        if (self.isIn(cu)) {
+            const m = cu.hiMask();
+            return m; // TODO obviously not correct...
+        } else {
+            return null;
+        }
+    }
+};
 
 //| Tests
 
@@ -51,4 +96,22 @@ test split {
     try expectEqual(lead.kind, .lead);
     const follow = split(lambda[1]);
     try expectEqual(follow.kind, .follow);
+    const C = split('C');
+    // mask property check
+    for (0..255) |i| {
+        const cu = split(@truncate(i));
+        try expectEqual(cu.lowMask() & cu.hiMask(), cu.inMask());
+    }
+    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ C.body, C.hiMask() });
+    std.debug.print("       lowMask: 0b{b:0>64}\n", .{C.lowMask()});
+    std.debug.print("        inMask: 0b{b:0>64}\n", .{C.inMask()});
+    const Qmark = split('?');
+    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ Qmark.body, Qmark.hiMask() });
+    std.debug.print("        lowMask: 0b{b:0>64}\n", .{Qmark.lowMask()});
+    const six_three = split('O');
+    std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ six_three.body, six_three.hiMask() });
+    std.debug.print("        lowMask: 0b{b:0>64}\n", .{six_three.lowMask()});
+    const at = split('@');
+    std.debug.print("body: {d} lowMask: 0b{b:0>64}\n", .{ at.body, at.lowMask() });
+    std.debug.print("         hiMask: 0b{b:0>64}\n", .{at.hiMask()});
 }
