@@ -21,11 +21,16 @@
 
 const std = @import("std");
 const ArrayList = std.ArrayList;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 // "pub" might not be appropriate here, these types
 // will most likely be fully encapsulated by the library.
-pub usingnamespace @import("elements.zig");
+const elements = @import("elements.zig");
 
-const testing = std.testing;
+const Mask = elements.Mask;
+const toMask = Mask.toMask;
+const CodeUnit = elements.CodeUnit;
+const split = elements.split;
 
 const RuneSet = []const u64;
 
@@ -37,12 +42,13 @@ const RuneSet = []const u64;
 ///
 /// The string must have only valid utf-8, or this function will return
 /// an error.
-pub fn createBodyFromString(str: []u8, alloc: std.Allocator) ![]u64 {
+pub fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     // The header handles all ASCII and lead bytes.  The fourth word
     // defines the offset into T4, which is zero unless the set contains
     // four-byte characters.
-    var header: [4]u64 = 0 ** 4;
-    // var T2: [56]u64 = 0 ** 56; // Masks for all second bytes.
+    std.debug.print("string before sieve: \n {s} \n", .{str});
+    var header: [4]u64 = .{0} ** 4;
+    // var T2: [56]u64 = .{0} ** 56; // Masks for all second bytes.
     var hasT2 = false; // tells us if we used T2.
     // We 'sieve' the string, taking characters in order of length,
     // and remove them from the string by moving all other characters
@@ -68,32 +74,68 @@ pub fn createBodyFromString(str: []u8, alloc: std.Allocator) ![]u64 {
             },
             .lead => {
                 hasT2 = true;
-                nBytes = cu.nBytes();
+                const nBytes = cu.nBytes();
                 if (nBytes) |nB| {
-                    std.debug.assert(nb <= 4);
+                    std.debug.assert(nB <= 4);
                     if (idx + nB > sieve.len) {
                         return error.InvalidUnicode;
                     }
                     if (nB >= 2) {
-                        sieve[idx - back] = sieve[i];
-                        sieve[idx - back + 1] = sieve[i + 1];
+                        sieve[idx - back] = sieve[idx];
+                        sieve[idx - back + 1] = sieve[idx + 1];
                     }
                     if (nB >= 3) {
-                        sieve[idx - back + 2] = sieve[i + 2];
+                        sieve[idx - back + 2] = sieve[idx + 2];
                     }
-                    if (nb == 4) {
-                        sieve[idx - back + 3] = sieve[i + 3];
+                    if (nB == 4) {
+                        sieve[idx - back + 3] = sieve[idx + 3];
                     }
+                    idx += nB + 1;
                 } else {
                     return error.InvalidUnicode;
                 }
-                idx += nB + 1;
             },
             .follow => return error.InvalidUnicode,
         }
     }
-    // TODO test hasT2, if ascii-only, construct header and return it
+    // ASCII is now complete, copy over the masks to the header.
+    header[0] = low.m;
+    header[1] = hi.m;
+    if (!hasT2) { // set was ASCII-only
+        // TODO make the below an assert
+        std.debug.print("sieve.len: {d}, back {d}", .{ sieve.len, back });
+        assert(sieve.len == back);
+        const memHeader = try allocator.alloc(u64, 4);
+        @memcpy(memHeader, header[0..]);
+        return memHeader;
+    } else {
+        std.log.err("NYI\n", .{});
+        unreachable;
+    }
     sieve = sieve[0 .. sieve.len - back];
+
+    // header[2] = lead.m;
+
+    return &header; // TODO obviously this data becomes garbage and must be copied
+}
+
+const testing = std.testing;
+const expect = testing.expect;
+const expectEqual = testing.expectEqual;
+
+test "ASCII createBodyFromString" {
+    const allocator = std.testing.allocator;
+    const AthruL = "ABCDEFGHIJKL";
+    const ALstr = try allocator.alloc(u8, AthruL.len);
+    defer allocator.free(ALstr);
+    @memcpy(ALstr, AthruL);
+    const asciiset = try createBodyFromString(ALstr, allocator);
+    defer allocator.free(asciiset);
+    const low = toMask(asciiset[0]);
+    try expectEqual(low.m, 0);
+    const hi = toMask(asciiset[1]);
+    try expect(hi.isIn(split('C')));
+    try expect(!hi.isIn(split('a')));
 }
 
 // Run elements tests as well
