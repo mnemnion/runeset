@@ -1,4 +1,4 @@
-//!  librunelib: a Zig library for fast utf-8 charsets
+//!  libruneset: a Zig library for fast utf-8 charsets
 //!
 //!
 
@@ -130,6 +130,30 @@ pub const Mask = struct {
             return null;
         }
     }
+
+    /// Return count of all members in set.
+    ///
+    /// Most popcounts are done on words we don't need to have
+    /// as Masks, this is a convenience for the LEAD word in
+    /// particular, which will already be in Mask form.
+    pub inline fn count(self: *const Mask) usize {
+        return @popCount(self.m);
+    }
+
+    /// Return union of two Masks as a new Mask
+    pub inline fn setunion(self: *const Mask, other: *const Mask) Mask {
+        return Mask{ .m = self.m | other.m };
+    }
+
+    /// Return intersection of two Masks as a new Mask
+    pub inline fn intersection(self: *const Mask, other: *const Mask) Mask {
+        return Mask{ .m = self.m & other.m };
+    }
+
+    /// Return difference of two Masks as a new Mask
+    pub inline fn difference(self: *const Mask, other: *const Mask) Mask {
+        return Mask{ .m = self.m & ~other.m };
+    }
 };
 
 //| Tests
@@ -180,6 +204,7 @@ test "mask tests" {
     try expect(m2.isIn(split('Z')));
     try expect(!m2.isIn(split('@')));
     try expect(!m2.isIn(split('[')));
+    try expectEqual(26, m2.count());
 }
 
 // test "bleh" {
