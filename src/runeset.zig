@@ -34,6 +34,7 @@ const split = elements.split;
 
 const RuneSet = []const u64;
 
+const InvalidUnicode = error.InvalidUnicode;
 /// Creates the body of a RuneSet from a mutable string, allocating
 /// a (still mutable) []u64 from the allocator and returning it.
 ///
@@ -42,13 +43,13 @@ const RuneSet = []const u64;
 ///
 /// The string must have only valid utf-8, or this function will return
 /// an error.
-pub fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
+fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     // The header handles all ASCII and lead bytes.  The fourth word
     // defines the offset into T4, which is zero unless the set contains
     // four-byte characters.
     std.debug.print("string before sieve: \n {s} \n", .{str});
     var header: [4]u64 = .{0} ** 4;
-    // var T2: [56]u64 = .{0} ** 56; // Masks for all second bytes.
+
     var hasT2 = false; // tells us if we used T2.
     // We 'sieve' the string, taking characters in order of length,
     // and remove them from the string by moving all other characters
@@ -78,7 +79,7 @@ pub fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 if (nBytes) |nB| {
                     std.debug.assert(nB <= 4);
                     if (idx + nB > sieve.len) {
-                        return error.InvalidUnicode;
+                        return InvalidUnicode;
                     }
                     if (nB >= 2) {
                         sieve[idx - back] = sieve[idx];
@@ -92,50 +93,124 @@ pub fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     }
                     idx += nB + 1;
                 } else {
-                    return error.InvalidUnicode;
+                    return InvalidUnicode;
                 }
             },
-            .follow => return error.InvalidUnicode,
+            .follow => return InvalidUnicode,
         }
     }
     // ASCII is now complete, copy over the masks to the header.
     header[0] = low.m;
     header[1] = hi.m;
     if (!hasT2) { // set was ASCII-only
-        // TODO make the below an assert
-        std.debug.print("sieve.len: {d}, back {d}", .{ sieve.len, back });
         assert(sieve.len == back);
         const memHeader = try allocator.alloc(u64, 4);
         @memcpy(memHeader, header[0..]);
         return memHeader;
-    } else {
-        std.log.err("NYI\n", .{});
-        unreachable;
     }
+    std.debug.print("str after sieve:\n{s}\n", .{sieve});
     sieve = sieve[0 .. sieve.len - back];
+    std.debug.print("str after pass one:\n{s}\n", .{sieve});
+    var T2: [56]u64 = .{0} ** 56; // Masks for all second bytes.
+    var lead = toMask(0);
+    idx = 0;
+    back = 0;
+    while (idx < sieve.len) {
+        const cu = split(sieve[idx]);
+        switch (cu.kind) {
+            .low, .hi, .follow => return InvalidUnicode,
+            .lead => {
+                const nBytes = cu.nBytes();
+                if (nBytes) |nB| {
+                    if (idx + nB > sieve.len) return InvalidUnicode;
+                    if (nB == 2) {
+                        lead.add(cu);
+                        const b = split(sieve[idx + 1]);
+                        // guaranteed because nBytes validates
+                        var bMask = toMask(T2[cu.body]);
+                        bMask.add(b);
+                        T2[cu.body] = bMask.m;
+                        back += 2;
+                        idx += 2;
+                    } else {
+                        // at least three
+                        assert(nB >= 3);
+                        sieve[idx - back] = sieve[idx];
+                        sieve[idx - back + 1] = sieve[idx + 1];
+                        sieve[idx - back + 2] = sieve[idx + 2];
+                        if (nB == 4) {
+                            sieve[idx - back + 3] = sieve[idx + 3];
+                        }
+                        idx += nB + 1;
+                    }
+                } else return InvalidUnicode;
+            },
+        }
+    }
+    if (sieve.len == back) {
+        // Only two-byte masks
+        header[3] = lead.m;
+        const T2c = compactSlice(&T2);
+        const setBody = try allocator.alloc(u64, 4 + T2c.len);
+        @memcpy(setBody, header[0..]);
+        @memcpy(setBody[4..], T2c);
+        return setBody;
+    }
 
     // header[2] = lead.m;
 
     return &header; // TODO obviously this data becomes garbage and must be copied
 }
 
+// remove all zero elements from a slice, returning the now-compaced slice.
+fn compactSlice(slice: []u64) []u64 {
+    var write: usize = 0;
+    for (slice) |x| {
+        if (x != 0) {
+            slice[write] = x;
+            write += 1;
+        }
+    }
+    return slice[0..write];
+}
+
 const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
+fn makeMutable(s: []const u8, a: Allocator) ![]u8 {
+    const mut = try a.alloc(u8, s.len);
+    @memcpy(mut, s);
+    return mut;
+}
 test "ASCII createBodyFromString" {
     const allocator = std.testing.allocator;
-    const AthruL = "ABCDEFGHIJKL";
-    const ALstr = try allocator.alloc(u8, AthruL.len);
+    const ALstr = try makeMutable("ABCDEFGHIJKL", allocator);
     defer allocator.free(ALstr);
-    @memcpy(ALstr, AthruL);
     const asciiset = try createBodyFromString(ALstr, allocator);
     defer allocator.free(asciiset);
-    const low = toMask(asciiset[0]);
+    var low = toMask(asciiset[0]);
     try expectEqual(low.m, 0);
     const hi = toMask(asciiset[1]);
     try expect(hi.isIn(split('C')));
     try expect(!hi.isIn(split('a')));
+    const some_nums = try makeMutable("02468", allocator);
+    defer allocator.free(some_nums);
+    const numset = try createBodyFromString(some_nums, allocator);
+    defer allocator.free(numset);
+    low = toMask(numset[0]);
+    try expectEqual(numset[1], 0);
+    try expect(low.isIn(split('2')));
+    try expect(!low.isIn(split('3')));
+}
+
+test compactSlice {
+    var arr: [6]u64 = .{ 0, 1, 2, 0, 1, 0 };
+    const smol = compactSlice(arr[0..]);
+    try expectEqual(3, smol.len);
+    try expectEqual(1, smol[0]);
+    try expectEqual(2, smol[1]);
+    try expectEqual(1, smol[2]);
 }
 
 // Run elements tests as well
