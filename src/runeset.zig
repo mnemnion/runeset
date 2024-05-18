@@ -35,6 +35,20 @@ const split = elements.split;
 const RuneSet = []const u64;
 
 const InvalidUnicode = error.InvalidUnicode;
+
+// Meaningful names for the T1 slots
+const LOW = 0;
+const HI = 1;
+const LEAD = 2;
+const T4_OFF = 3;
+
+// Important values for correct use of RuneSets
+// NOTE: These are offset/length values, e.g. two-byte range is 0..32,
+//       meaning the highest legal body value is 31.
+const TWO_MAX = 32; // maximum cu.body for two byte lead
+const THREE_MAX = 48; // maximum for three byte lead
+const FOUR_MAX = 56; // maximum for four-byte lead
+
 /// Creates the body of a RuneSet from a mutable string, allocating
 /// a (still mutable) []u64 from the allocator and returning it.
 ///
@@ -99,8 +113,8 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
         }
     }
     // ASCII is now complete, copy over the masks to the header.
-    header[0] = low.m;
-    header[1] = hi.m;
+    header[LOW] = low.m;
+    header[HI] = hi.m;
     if (lead.count() == 0) { // set was ASCII-only
         assert(sieve.len == back);
         const memHeader = try allocator.alloc(u64, 4);
@@ -111,7 +125,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     sieve = sieve[0 .. sieve.len - back];
     std.debug.print("str after pass one:\n{s}\n", .{sieve});
     // sieve for second bytes
-    var T2: [56]u64 = .{0} ** 56; // Masks for all second bytes.
+    var T2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX; // Masks for all second bytes.
     idx = 0;
     back = 0;
     while (idx < sieve.len) {
@@ -146,10 +160,10 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
             },
         }
     } // All second bytes accounted for
-    header[2] = lead.m;
+    header[LEAD] = lead.m;
     if (sieve.len == back) {
         // High region of T2 must be empty (sanity check)
-        assert(popCountSlice(T2[32..]) == 0);
+        assert(popCountSlice(T2[TWO_MAX..]) == 0);
         const T2c = compactSlice(&T2);
         // Should be length of popcount
         assert(T2c.len == lead.count());
@@ -158,30 +172,38 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
         @memcpy(setBody[4..], T2c);
         return setBody;
     }
+    sieve = sieve[0..back];
     // sieve for third bytes
     // number of elements in the high region of T2
     // is the number of masks in T3
-    const T3: []u64 = try allocator.alloc(u64, popCountSlice(T2[32..]));
+    const T3: []u64 = try allocator.alloc(u64, popCountSlice(T2[TWO_MAX..]));
     defer allocator.free(T3);
-    for (0..T3.len) |i| {
-        T3[i] = 0;
-    }
+    @memset(T3, 0);
     idx = 0;
     back = 0;
+    // T3 is laid out 'backward': highest lead byte to lowest.
     while (idx < sieve.len) {
-        const cu = split(sieve[idx]);
-        switch (cu.kind) {
+        const one = split(sieve[idx]);
+        switch (one.kind) {
             .low, .hi, .follow => unreachable,
             .lead => {
-                assert(lead.isIn(cu));
-                const nB = cu.nBytes().?;
-                const twoOff = lead.lowerThan(cu).?;
+                assert(lead.isIn(one));
+                const nB = one.nBytes().?;
+                assert(nB >= 3);
+                assert(one.body >= TWO_MAX);
                 const two = split(sieve[idx + 1]);
                 assert(two.kind == .follow); // already validated in sieve two
-                const twoMask = toMask(T2[twoOff]);
+                // T2 is one-to-one
+                const twoMask = toMask(T2[one.body]);
                 assert(twoMask.isIn(two));
                 // count all higher elements
-                const threeOff = twoMask.higherThan(cu).? + popCountSlice(T2[twoOff..]);
+                const hiThree = twoMask.higherThan(two).?;
+                // ward off the impractical case where our lead
+                // byte is the maximum value allowed by Unicode
+                const threeOff = if (one.body < FOUR_MAX - 1)
+                    hiThree + popCountSlice(T2[one.body + 1 ..])
+                else
+                    hiThree;
                 const three = split(sieve[idx + 2]);
                 if (three.kind != .follow) return InvalidUnicode;
                 var threeMask = toMask(T3[threeOff]);
@@ -203,9 +225,11 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     if (sieve.len == back) {
         // No four-byte characters
         // "very high" region of T2 must be empty
-        assert(popCountSlice(T2[48..]) == 0);
+        assert(popCountSlice(T2[THREE_MAX..]) == 0);
+        // T3 must have values in it
+        assert(popCountSlice(T3) != 0);
         const T2c = compactSlice(&T2);
-        // Should be length of popcount
+        // Must be length of popcount
         assert(T2c.len == lead.count());
         const T3off = 4 + T2c.len;
         const setLen = T3off + T3.len;
@@ -215,9 +239,87 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
         @memcpy(setBody[T3off..], T3);
         return setBody;
     }
-    // header[2] = lead.m;
+    sieve = sieve[0..back];
+    // We now know the T4 header offset:
+    // Length of header (4) + compacted T2 + popcount hi T2
+    const T4Head = 4 + nonZeroCount(&T2) + popCountSlice(T2[TWO_MAX..]);
+    std.debug.print("T4 header offset {d}\n", .{T4Head});
+    header[T4_OFF] = T4Head;
+    // Allocate T4: this is counted by a popcount of all
+    // elements of T2 which have a fourth byte, then
+    // popcounting that many elements of T3.
+    const elem4 = popCountSlice(T2[THREE_MAX..]);
+    const T4len = popCountSlice(T3[0..elem4]);
+    const T4 = try allocator.alloc(u64, T4len);
+    defer allocator.free(T4);
+    @memset(T4, 0);
+    // we no longer need back
+    idx = 0;
+    // sieve for fourth byte
+    // T4 is a zig, not a zag: laid out forward, such that the
+    // highest Unicode values of a codepoint are found at the
+    // end of the T4 region.
+    while (idx < sieve.len) {
+        const one = split(sieve[idx]);
+        switch (one.kind) {
+            .low, .hi, .follow => unreachable,
+            .lead => {
+                assert(lead.isIn(one));
+                const nB = one.nBytes().?;
+                assert(nB == 4);
+                assert(one.body >= THREE_MAX);
+                const two = split(sieve[idx + 1]);
+                assert(two.kind == .follow);
+                // Same procedure to find our path into
+                // the maze...
+                const twoMask = toMask(T2[one.body]);
+                assert(twoMask.isIn(two));
+                // count all higher elements
+                const hiThree = twoMask.higherThan(two).?;
+                const threeOff = if (one.body < FOUR_MAX - 1)
+                    hiThree + popCountSlice(T2[one.body + 1 ..])
+                else
+                    hiThree;
+                const three = split(sieve[idx + 2]);
+                const threeMask = toMask(T3[threeOff]);
+                assert(threeMask.isIn(three));
+                const fourLow = threeMask.lowerThan(three).?;
+                const fourOff = fourLow + popCountSlice(T3[0 .. threeOff - 1]);
+                if (idx + 3 >= sieve.len) return InvalidUnicode;
+                const four = split(sieve[idx + 3]);
+                if (four.kind != .follow) return InvalidUnicode;
+                var fourMask = toMask(T4[fourOff]);
+                fourMask.add(four);
+                T4[fourOff] = fourMask.m;
+                idx += nB;
+            },
+        }
+    }
+    // given that the above is correct, we have validated and added
+    // all legal Unicode in the string.
+    const T2c = compactSlice(&T2);
+    // Must be length of lead popcount
+    assert(T2c.len == lead.count());
+    const T3off = 4 + T2c.len;
+    const T4off = T3off + T3.len;
+    const setLen = T4off + T4.len;
+    assert(4 + T2c.len + T3.len + T4.len == setLen);
+    const setBody = try allocator.alloc(u64, setLen);
+    @memcpy(setBody[0..4], &header);
+    @memcpy(setBody[4..T2c.len], T2c);
+    @memcpy(setBody[T3off..T4off], T3);
+    @memcpy(setBody[T4off..], T4);
+    return setBody;
+}
 
-    return &header; // TODO obviously this data becomes garbage and must be copied
+/// Count non-zero members of word slice
+inline fn nonZeroCount(words: []u64) usize {
+    var w: usize = 0;
+    for (words) |word| {
+        if (word != 0)
+            w += 1;
+    }
+    return w;
 }
 
 fn popCountSlice(region: []const u64) usize {
