@@ -47,19 +47,18 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     // The header handles all ASCII and lead bytes.  The fourth word
     // defines the offset into T4, which is zero unless the set contains
     // four-byte characters.
-    std.debug.print("string before sieve: \n {s} \n", .{str});
     var header: [4]u64 = .{0} ** 4;
-
-    var hasT2 = false; // tells us if we used T2.
     // We 'sieve' the string, taking characters in order of length,
     // and remove them from the string by moving all other characters
     // back.
     var back: usize = 0; // amount to move unused characters back.
     var sieve = str;
-    // ASCII pass: we process all ASCII and move anything else back.
+    // Lead pass: lead byte of everything added, ASCII characters
+    // removed.
     var idx: usize = 0;
-    var low = Mask.toMask(0);
-    var hi = Mask.toMask(0);
+    var low = toMask(0);
+    var hi = toMask(0);
+    var lead = toMask(0);
     while (idx < sieve.len) {
         const cu = split(sieve[idx]);
         switch (cu.kind) {
@@ -74,7 +73,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 idx += 1;
             },
             .lead => {
-                hasT2 = true;
+                lead.add(cu);
                 const nBytes = cu.nBytes();
                 if (nBytes) |nB| {
                     std.debug.assert(nB <= 4);
@@ -91,7 +90,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     if (nB == 4) {
                         sieve[idx - back + 3] = sieve[idx + 3];
                     }
-                    idx += nB + 1;
+                    idx += nB;
                 } else {
                     return InvalidUnicode;
                 }
@@ -102,17 +101,16 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     // ASCII is now complete, copy over the masks to the header.
     header[0] = low.m;
     header[1] = hi.m;
-    if (!hasT2) { // set was ASCII-only
+    if (lead.count() == 0) { // set was ASCII-only
         assert(sieve.len == back);
         const memHeader = try allocator.alloc(u64, 4);
-        @memcpy(memHeader, header[0..]);
+        @memcpy(memHeader, &header);
         return memHeader;
     }
     std.debug.print("str after sieve:\n{s}\n", .{sieve});
     sieve = sieve[0 .. sieve.len - back];
     std.debug.print("str after pass one:\n{s}\n", .{sieve});
     var T2: [56]u64 = .{0} ** 56; // Masks for all second bytes.
-    var lead = toMask(0);
     idx = 0;
     back = 0;
     while (idx < sieve.len) {
@@ -123,36 +121,35 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 const nBytes = cu.nBytes();
                 if (nBytes) |nB| {
                     if (idx + nB > sieve.len) return InvalidUnicode;
+                    assert(lead.isIn(cu));
+                    // add all second bytes
+                    const b = split(sieve[idx + 1]);
+                    // guaranteed in-range because nBytes validates
+                    var bMask = toMask(T2[cu.body]);
+                    bMask.add(b);
+                    T2[cu.body] = bMask.m;
                     if (nB == 2) {
-                        lead.add(cu);
-                        const b = split(sieve[idx + 1]);
-                        // guaranteed because nBytes validates
-                        var bMask = toMask(T2[cu.body]);
-                        bMask.add(b);
-                        T2[cu.body] = bMask.m;
                         back += 2;
-                        idx += 2;
-                    } else {
-                        // at least three
-                        assert(nB >= 3);
+                    }
+                    if (nB >= 3) {
                         sieve[idx - back] = sieve[idx];
                         sieve[idx - back + 1] = sieve[idx + 1];
                         sieve[idx - back + 2] = sieve[idx + 2];
                         if (nB == 4) {
                             sieve[idx - back + 3] = sieve[idx + 3];
                         }
-                        idx += nB + 1;
                     }
+                    idx += nB;
                 } else return InvalidUnicode;
             },
         }
     }
     if (sieve.len == back) {
         // Only two-byte masks
-        header[3] = lead.m;
+        header[2] = lead.m;
         const T2c = compactSlice(&T2);
         const setBody = try allocator.alloc(u64, 4 + T2c.len);
-        @memcpy(setBody, header[0..]);
+        @memcpy(setBody[0..4], &header);
         @memcpy(setBody[4..], T2c);
         return setBody;
     }
@@ -202,6 +199,20 @@ test "ASCII createBodyFromString" {
     try expectEqual(numset[1], 0);
     try expect(low.isIn(split('2')));
     try expect(!low.isIn(split('3')));
+}
+
+test "two-byte createBodyFromString" {
+    const allocator = std.testing.allocator;
+    const greekstr = try makeMutable("ABCDαβγδεζηθικλμνξοπρςστυφχψωEFG", allocator);
+    defer allocator.free(greekstr);
+    const greekset = try createBodyFromString(greekstr, allocator);
+    defer allocator.free(greekset);
+    const hi = toMask(greekset[1]);
+    try expect(hi.isIn(split('G')));
+    const lead = toMask(greekset[2]);
+    const alfabeta = "αβ";
+    std.debug.print("alfabeta {d}\n", .{split(alfabeta[0]).body});
+    try expect(lead.isIn(split(alfabeta[0])));
 }
 
 test compactSlice {
