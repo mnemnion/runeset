@@ -110,6 +110,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     std.debug.print("str after sieve:\n{s}\n", .{sieve});
     sieve = sieve[0 .. sieve.len - back];
     std.debug.print("str after pass one:\n{s}\n", .{sieve});
+    // sieve for second bytes
     var T2: [56]u64 = .{0} ** 56; // Masks for all second bytes.
     idx = 0;
     back = 0;
@@ -124,6 +125,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     assert(lead.isIn(cu));
                     // add all second bytes
                     const b = split(sieve[idx + 1]);
+                    if (b.kind != .follow) return InvalidUnicode;
                     // guaranteed in-range because nBytes validates
                     var bMask = toMask(T2[cu.body]);
                     bMask.add(b);
@@ -143,20 +145,85 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 } else return InvalidUnicode;
             },
         }
-    }
+    } // All second bytes accounted for
+    header[2] = lead.m;
     if (sieve.len == back) {
-        // Only two-byte masks
-        header[2] = lead.m;
+        // High region of T2 must be empty (sanity check)
+        assert(popCountSlice(T2[32..]) == 0);
         const T2c = compactSlice(&T2);
+        // Should be length of popcount
+        assert(T2c.len == lead.count());
         const setBody = try allocator.alloc(u64, 4 + T2c.len);
         @memcpy(setBody[0..4], &header);
         @memcpy(setBody[4..], T2c);
         return setBody;
     }
-
+    // sieve for third bytes
+    // number of elements in the high region of T2
+    // is the number of masks in T3
+    const T3: []u64 = try allocator.alloc(u64, popCountSlice(T2[32..]));
+    defer allocator.free(T3);
+    for (0..T3.len) |i| {
+        T3[i] = 0;
+    }
+    idx = 0;
+    back = 0;
+    while (idx < sieve.len) {
+        const cu = split(sieve[idx]);
+        switch (cu.kind) {
+            .low, .hi, .follow => unreachable,
+            .lead => {
+                assert(lead.isIn(cu));
+                const nB = cu.nBytes().?;
+                const twoOff = lead.lowerThan(cu).?;
+                const two = split(sieve[idx + 1]);
+                assert(two.kind == .follow); // already validated in sieve two
+                const twoMask = toMask(T2[twoOff]);
+                assert(twoMask.isIn(two));
+                // count all higher elements
+                const threeOff = twoMask.higherThan(cu).? + popCountSlice(T2[twoOff..]);
+                const three = split(sieve[idx + 2]);
+                if (three.kind != .follow) return InvalidUnicode;
+                var threeMask = toMask(T3[threeOff]);
+                threeMask.add(three);
+                T3[threeOff] = threeMask.m;
+                idx += nB;
+                if (nB == 3)
+                    back += 3
+                else {
+                    assert(nB == 4);
+                    sieve[idx - back] = sieve[idx];
+                    sieve[idx - back + 1] = sieve[idx + 1];
+                    sieve[idx - back + 2] = sieve[idx + 2];
+                    sieve[idx - back + 3] = sieve[idx + 3];
+                }
+            },
+        }
+    }
+    if (sieve.len == back) {
+        // No four-byte characters
+        // "very high" region of T2 must be empty
+        assert(popCountSlice(T2[48..]) == 0);
+        const T2c = compactSlice(&T2);
+        // Should be length of popcount
+        assert(T2c.len == lead.count());
+        const T3off = 4 + T2c.len;
+        const setLen = T3off + T3.len;
+        const setBody = try allocator.alloc(u64, setLen);
+        @memcpy(setBody[0..4], &header);
+        @memcpy(setBody[4..T2c.len], T2c);
+        @memcpy(setBody[T3off..], T3);
+        return setBody;
+    }
     // header[2] = lead.m;
 
     return &header; // TODO obviously this data becomes garbage and must be copied
+}
+
+fn popCountSlice(region: []const u64) usize {
+    var ct: usize = 0;
+    for (region) |w| ct += @popCount(w);
+    return ct;
 }
 
 // remove all zero elements from a slice, returning the now-compaced slice.
@@ -210,6 +277,7 @@ test "two-byte createBodyFromString" {
     const hi = toMask(greekset[1]);
     try expect(hi.isIn(split('G')));
     const lead = toMask(greekset[2]);
+    try expectEqual(greekset.len, 4 + lead.count());
     const alfabeta = "αβ";
     std.debug.print("alfabeta {d}\n", .{split(alfabeta[0]).body});
     try expect(lead.isIn(split(alfabeta[0])));
