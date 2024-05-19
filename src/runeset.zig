@@ -312,8 +312,68 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     return setBody;
 }
 
+/// matchOneDirectly: use a 'raw' RuneSet to match against the
+/// beginning of a slice.
+///
+/// This returns the number of bytes matched, or nothing if invalid
+/// Unicode is encountered.  This is opportunistic: if a byte is
+/// discovered to not be a member of the set, any further bytes will
+/// not be decoded.
+///
+/// This is safe to use on any []u8, including truncated UTF-8.
+///
+fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
+    const a = split(str[0]);
+    switch (a.kind) {
+        .follow => return null,
+        .low => {
+            const mask = toMask(set[LOW]);
+            if (mask.isIn(a))
+                return 1
+            else
+                return 0;
+        },
+        .hi => {
+            const mask = toMask(set[HI]);
+            if (mask.isIn(a))
+                return 1
+            else
+                return 0;
+        },
+        .lead => {
+            const nB = a.nBytes();
+            assert(nB > 1);
+            if (nB > str.len) return null;
+            const a_mask = toMask(set[LEAD]);
+            if (!a_mask.isIn(a)) return 0;
+            const b = split(str[1]);
+            if (b.kind != .follow) return null;
+            const b_loc = 4 + a_mask.lowerThan(a).?;
+            const b_mask = toMask(set[b_loc]);
+            if (!b_mask.isIn(b)) return 0;
+            if (nB == 2) return 2;
+            const c = split(str[2]);
+            if (c.kind != .follow) return null;
+            const l_count = @popCount(set[LEAD]);
+            const c_off = b_mask.higherThan(b) + popCountSlice(set[b_loc + 1 .. l_count]);
+            const c_loc = 4 + l_count + c_off;
+            const c_mask = set[c_loc];
+            if (!c_mask.isIn(c)) return 0;
+            if (nB == 3) return 3;
+            const d_off = if (c_loc == 5 + l_count)
+                c_mask.lowerThan(c)
+            else
+                c_mask.lowerThan(c) + popCountSlice(set[4 + l_count .. c_loc - 1]);
+            const d = split(str[3]);
+            if (d.kind != .follow) return null;
+            const d_mask = toMask(set[d_off]);
+            if (d_mask.isIn(d)) return 4 else return 0;
+        },
+    }
+}
+
 /// Count non-zero members of word slice
-inline fn nonZeroCount(words: []u64) usize {
+inline fn nonZeroCount(words: []const u64) usize {
     var w: usize = 0;
     for (words) |word| {
         if (word != 0)
@@ -326,6 +386,13 @@ fn popCountSlice(region: []const u64) usize {
     var ct: usize = 0;
     for (region) |w| ct += @popCount(w);
     return ct;
+}
+
+test popCountSlice {
+    const region: [4]u64 = .{ 0, 0, 1, 3 };
+    // check that empty slice returns 0
+    try expectEqual(0, popCountSlice(region[2..2]));
+    try expectEqual(3, popCountSlice(&region));
 }
 
 // remove all zero elements from a slice, returning the now-compaced slice.
@@ -380,9 +447,9 @@ test "two-byte createBodyFromString" {
     try expect(hi.isIn(split('G')));
     const lead = toMask(greekset[2]);
     try expectEqual(greekset.len, 4 + lead.count());
-    const alfabeta = "αβ";
-    std.debug.print("alfabeta {d}\n", .{split(alfabeta[0]).body});
-    try expect(lead.isIn(split(alfabeta[0])));
+    const alfa = "αψ";
+    try expect(lead.isIn(split(alfa[0])));
+    try expect(lead.isIn(split(alfa[2])));
 }
 
 test compactSlice {
