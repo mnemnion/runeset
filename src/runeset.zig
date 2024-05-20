@@ -23,14 +23,14 @@ const std = @import("std");
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-// "pub" might not be appropriate here, these types
-// will most likely be fully encapsulated by the library.
 const elements = @import("elements.zig");
 
 const Mask = elements.Mask;
 const toMask = Mask.toMask;
-const CodeUnit = elements.CodeUnit;
-const split = elements.split;
+/// A wrapper for a single byte of utf8
+pub const CodeUnit = elements.CodeUnit;
+/// codeunit(:u8) creates a CodeUnit
+pub const codeunit = elements.codeunit;
 
 const RuneSet = []const u64;
 
@@ -74,7 +74,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     var hi = toMask(0);
     var lead = toMask(0);
     while (idx < sieve.len) {
-        const cu = split(sieve[idx]);
+        const cu = codeunit(sieve[idx]);
         switch (cu.kind) {
             .low => {
                 low.add(cu);
@@ -129,7 +129,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     idx = 0;
     back = 0;
     while (idx < sieve.len) {
-        const cu = split(sieve[idx]);
+        const cu = codeunit(sieve[idx]);
         switch (cu.kind) {
             .low, .hi, .follow => return InvalidUnicode,
             .lead => {
@@ -138,7 +138,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     if (idx + nB > sieve.len) return InvalidUnicode;
                     assert(lead.isIn(cu));
                     // add all second bytes
-                    const b = split(sieve[idx + 1]);
+                    const b = codeunit(sieve[idx + 1]);
                     if (b.kind != .follow) return InvalidUnicode;
                     // guaranteed in-range because nBytes validates
                     var bMask = toMask(T2[cu.body]);
@@ -183,7 +183,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     back = 0;
     // T3 is laid out 'backward': highest lead byte to lowest.
     while (idx < sieve.len) {
-        const one = split(sieve[idx]);
+        const one = codeunit(sieve[idx]);
         switch (one.kind) {
             .low, .hi, .follow => unreachable,
             .lead => {
@@ -191,7 +191,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 const nB = one.nMultiBytes().?;
                 assert(nB >= 3);
                 assert(one.body >= TWO_MAX);
-                const two = split(sieve[idx + 1]);
+                const two = codeunit(sieve[idx + 1]);
                 assert(two.kind == .follow); // already validated in sieve two
                 // T2 is one-to-one
                 const twoMask = toMask(T2[one.body]);
@@ -204,7 +204,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     hiThree + popCountSlice(T2[one.body + 1 ..])
                 else
                     hiThree;
-                const three = split(sieve[idx + 2]);
+                const three = codeunit(sieve[idx + 2]);
                 if (three.kind != .follow) return InvalidUnicode;
                 var threeMask = toMask(T3[threeOff]);
                 threeMask.add(three);
@@ -260,7 +260,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     // highest Unicode values of a codepoint are found at the
     // end of the T4 region.
     while (idx < sieve.len) {
-        const one = split(sieve[idx]);
+        const one = codeunit(sieve[idx]);
         switch (one.kind) {
             .low, .hi, .follow => unreachable,
             .lead => {
@@ -268,7 +268,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 const nB = one.nMultiBytes().?;
                 assert(nB == 4);
                 assert(one.body >= THREE_MAX);
-                const two = split(sieve[idx + 1]);
+                const two = codeunit(sieve[idx + 1]);
                 assert(two.kind == .follow);
                 // Same procedure to find our path into
                 // the maze...
@@ -280,13 +280,13 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     hiThree + popCountSlice(T2[one.body + 1 ..])
                 else
                     hiThree;
-                const three = split(sieve[idx + 2]);
+                const three = codeunit(sieve[idx + 2]);
                 const threeMask = toMask(T3[threeOff]);
                 assert(threeMask.isIn(three));
                 const fourLow = threeMask.lowerThan(three).?;
                 const fourOff = fourLow + popCountSlice(T3[0 .. threeOff - 1]);
                 if (idx + 3 >= sieve.len) return InvalidUnicode;
-                const four = split(sieve[idx + 3]);
+                const four = codeunit(sieve[idx + 3]);
                 if (four.kind != .follow) return InvalidUnicode;
                 var fourMask = toMask(T4[fourOff]);
                 fourMask.add(four);
@@ -323,7 +323,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
 /// This is safe to use on any []u8, including truncated UTF-8.
 ///
 fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
-    const a = split(str[0]);
+    const a = codeunit(str[0]);
     switch (a.kind) {
         .follow => return null,
         .low => {
@@ -346,13 +346,13 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             if (nB > str.len) return null;
             const a_mask = toMask(set[LEAD]);
             if (!a_mask.isIn(a)) return 0;
-            const b = split(str[1]);
+            const b = codeunit(str[1]);
             if (b.kind != .follow) return null;
             const b_loc = 4 + a_mask.lowerThan(a).?;
             const b_mask = toMask(set[b_loc]);
             if (!b_mask.isIn(b)) return 0;
             if (nB == 2) return 2;
-            const c = split(str[2]);
+            const c = codeunit(str[2]);
             if (c.kind != .follow) return null;
             const l_count = @popCount(set[LEAD]);
             const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. l_count]);
@@ -364,7 +364,7 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
                 c_mask.lowerThan(c).?
             else
                 c_mask.lowerThan(c).? + popCountSlice(set[4 + l_count .. c_loc - 1]);
-            const d = split(str[3]);
+            const d = codeunit(str[3]);
             if (d.kind != .follow) return null;
             const d_mask = toMask(set[d_off]);
             if (d_mask.isIn(d)) return 4 else return 0;
@@ -429,7 +429,7 @@ fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
     var idx: usize = 0;
     while (idx < s.len) {
         const slice = s[idx..];
-        const nB = split(s[idx]).nBytes() orelse unreachable;
+        const nB = codeunit(s[idx]).nBytes() orelse unreachable;
         const nMatch = matchOneDirectly(set, slice) orelse unreachable;
         expectEqual(nMatch, nB) catch |err| {
             std.log.err("not a valid match at index {d}", .{idx});
@@ -461,16 +461,16 @@ test "ASCII createBodyFromString" {
     var low = toMask(asciiset[0]);
     try expectEqual(low.m, 0);
     const hi = toMask(asciiset[1]);
-    try expect(hi.isIn(split('C')));
-    try expect(!hi.isIn(split('a')));
+    try expect(hi.isIn(codeunit('C')));
+    try expect(!hi.isIn(codeunit('a')));
     const some_nums = try makeMutable("02468", allocator);
     defer allocator.free(some_nums);
     const numset = try createBodyFromString(some_nums, allocator);
     defer allocator.free(numset);
     low = toMask(numset[0]);
     try expectEqual(numset[1], 0);
-    try expect(low.isIn(split('2')));
-    try expect(!low.isIn(split('3')));
+    try expect(low.isIn(codeunit('2')));
+    try expect(!low.isIn(codeunit('3')));
 }
 
 test "two-byte createBodyFromString" {
@@ -480,12 +480,12 @@ test "two-byte createBodyFromString" {
     const greekset = try createBodyFromString(greekstr, allocator);
     defer allocator.free(greekset);
     const hi = toMask(greekset[1]);
-    try expect(hi.isIn(split('G')));
+    try expect(hi.isIn(codeunit('G')));
     const lead = toMask(greekset[2]);
     try expectEqual(greekset.len, 4 + lead.count());
     const alfa = "αψ";
-    try expect(lead.isIn(split(alfa[0])));
-    try expect(lead.isIn(split(alfa[2])));
+    try expect(lead.isIn(codeunit(alfa[0])));
+    try expect(lead.isIn(codeunit(alfa[2])));
 }
 
 test compactSlice {

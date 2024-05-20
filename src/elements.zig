@@ -76,7 +76,7 @@ pub const CodeUnit = packed struct(u8) {
 };
 
 /// Cast raw byte to CodeUnit
-pub inline fn split(b: u8) CodeUnit {
+pub inline fn codeunit(b: u8) CodeUnit {
     return @bitCast(b);
 }
 
@@ -171,20 +171,20 @@ pub const Mask = struct {
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-test split {
-    const A = split('A');
+test codeunit {
+    const A = codeunit('A');
     try expectEqual(A.kind, .hi);
-    const zero = split('0');
+    const zero = codeunit('0');
     try expectEqual(zero.kind, .low);
     const lambda = "λ";
-    const lead = split(lambda[0]);
+    const lead = codeunit(lambda[0]);
     try expectEqual(lead.kind, .lead);
     try expectEqual(lead.nMultiBytes(), 2);
-    const follow = split(lambda[1]);
+    const follow = codeunit(lambda[1]);
     try expectEqual(follow.kind, .follow);
     // mask property check
     for (0..256) |i| {
-        const cu = split(@truncate(i));
+        const cu = codeunit(@truncate(i));
         try expectEqual(cu.lowMask() & cu.hiMask(), 0);
         // For 63, masks are u64 min and max
         if (cu.body != 63) {
@@ -198,22 +198,22 @@ test split {
 
 test "mask tests" {
     var mask = Mask.toMask(0);
-    const B = split('B');
+    const B = codeunit('B');
     mask.add(B);
     try expect(mask.isIn(B));
-    const D = split('D');
+    const D = codeunit('D');
     mask.add(D);
-    mask.add(split('Z'));
+    mask.add(codeunit('Z'));
     try expectEqual(mask.higherThan(B).?, 2);
     try expectEqual(mask.lowerThan(D), 1);
-    try expectEqual(mask.lowerThan(split('?')), null);
+    try expectEqual(mask.lowerThan(codeunit('?')), null);
     var m2 = Mask.toMask(0);
-    m2.addRange(split('A'), split('Z'));
+    m2.addRange(codeunit('A'), codeunit('Z'));
     try expect(m2.isIn(D));
-    try expect(m2.isIn(split('A')));
-    try expect(m2.isIn(split('Z')));
-    try expect(!m2.isIn(split('@')));
-    try expect(!m2.isIn(split('[')));
+    try expect(m2.isIn(codeunit('A')));
+    try expect(m2.isIn(codeunit('Z')));
+    try expect(!m2.isIn(codeunit('@')));
+    try expect(!m2.isIn(codeunit('[')));
     try expectEqual(26, m2.count());
 }
 
