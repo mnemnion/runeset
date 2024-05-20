@@ -88,7 +88,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
             },
             .lead => {
                 lead.add(cu);
-                const nBytes = cu.nBytes();
+                const nBytes = cu.nMultiBytes();
                 if (nBytes) |nB| {
                     std.debug.assert(nB <= 4);
                     if (idx + nB > sieve.len) {
@@ -133,7 +133,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
         switch (cu.kind) {
             .low, .hi, .follow => return InvalidUnicode,
             .lead => {
-                const nBytes = cu.nBytes();
+                const nBytes = cu.nMultiBytes();
                 if (nBytes) |nB| {
                     if (idx + nB > sieve.len) return InvalidUnicode;
                     assert(lead.isIn(cu));
@@ -188,7 +188,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
             .low, .hi, .follow => unreachable,
             .lead => {
                 assert(lead.isIn(one));
-                const nB = one.nBytes().?;
+                const nB = one.nMultiBytes().?;
                 assert(nB >= 3);
                 assert(one.body >= TWO_MAX);
                 const two = split(sieve[idx + 1]);
@@ -265,7 +265,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
             .low, .hi, .follow => unreachable,
             .lead => {
                 assert(lead.isIn(one));
-                const nB = one.nBytes().?;
+                const nB = one.nMultiBytes().?;
                 assert(nB == 4);
                 assert(one.body >= THREE_MAX);
                 const two = split(sieve[idx + 1]);
@@ -341,7 +341,7 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
                 return 0;
         },
         .lead => {
-            const nB = a.nBytes();
+            const nB = a.nMultiBytes() orelse return null;
             assert(nB > 1);
             if (nB > str.len) return null;
             const a_mask = toMask(set[LEAD]);
@@ -355,15 +355,15 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const c = split(str[2]);
             if (c.kind != .follow) return null;
             const l_count = @popCount(set[LEAD]);
-            const c_off = b_mask.higherThan(b) + popCountSlice(set[b_loc + 1 .. l_count]);
+            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. l_count]);
             const c_loc = 4 + l_count + c_off;
-            const c_mask = set[c_loc];
+            const c_mask = toMask(set[c_loc]);
             if (!c_mask.isIn(c)) return 0;
             if (nB == 3) return 3;
             const d_off = if (c_loc == 5 + l_count)
-                c_mask.lowerThan(c)
+                c_mask.lowerThan(c).?
             else
-                c_mask.lowerThan(c) + popCountSlice(set[4 + l_count .. c_loc - 1]);
+                c_mask.lowerThan(c).? + popCountSlice(set[4 + l_count .. c_loc - 1]);
             const d = split(str[3]);
             if (d.kind != .follow) return null;
             const d_mask = toMask(set[d_off]);
@@ -416,6 +416,42 @@ fn makeMutable(s: []const u8, a: Allocator) ![]u8 {
     @memcpy(mut, s);
     return mut;
 }
+
+/// Build a "raw" set out of a known-good string, then
+/// test membership of every character in the set
+///
+/// "known good" means the string must be valid utf-8.
+fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
+    const str = try makeMutable(s, alloc);
+    defer alloc.free(str);
+    const set = try createBodyFromString(str, alloc);
+    defer alloc.free(set);
+    var idx: usize = 0;
+    while (idx < s.len) {
+        const slice = s[idx..];
+        const nB = split(s[idx]).nBytes() orelse unreachable;
+        const nMatch = matchOneDirectly(set, slice) orelse unreachable;
+        expectEqual(nMatch, nB) catch |err| {
+            std.log.err("not a valid match at index {d}", .{idx});
+            return err;
+        };
+        idx += nB;
+    }
+}
+
+// Test strings
+
+const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+const greek = "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρςστυφχψω";
+const alfagreek = alphabet ++ greek;
+
+test "create and match strings" {
+    const allocator = std.testing.allocator;
+    try buildAndTestString(alphabet, allocator);
+    try buildAndTestString(greek, allocator);
+    try buildAndTestString(alfagreek, allocator);
+}
+
 test "ASCII createBodyFromString" {
     const allocator = std.testing.allocator;
     const ALstr = try makeMutable("ABCDEFGHIJKL", allocator);

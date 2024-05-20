@@ -25,13 +25,13 @@ pub const CodeUnit = packed struct(u8) {
         return @as(u64, 1) << self.body;
     }
 
-    /// Number of bytes in rune.
+    /// Number of bytes in known multi-byte rune.
     ///
     /// Caller guarantees that the CodeUnit is a lead byte
     /// of a multi-byte rune: `cu.kind == .lead`.
     ///
     /// Illegal lead bytes will return null.
-    pub inline fn nBytes(self: *const CodeUnit) ?u8 {
+    pub inline fn nMultiBytes(self: *const CodeUnit) ?u8 {
         std.debug.assert(self.kind == .lead);
         return switch (self.body) {
             0...31 => 2,
@@ -43,6 +43,16 @@ pub const CodeUnit = packed struct(u8) {
             // "64k should be enough for anyone" <spits>
             56...63 => null,
         };
+    }
+
+    /// number of bytes in *any* valid lead rune
+    /// Will return null for invalid leads.
+    pub inline fn nBytes(self: *const CodeUnit) ?u8 {
+        switch (self.kind) {
+            .low, .hi => return 1,
+            .follow => return null,
+            .lead => return self.nMultiBytes(),
+        }
     }
 
     /// Mask off all bits >= cu.body
@@ -169,7 +179,7 @@ test split {
     const lambda = "λ";
     const lead = split(lambda[0]);
     try expectEqual(lead.kind, .lead);
-    try expectEqual(lead.nBytes(), 2);
+    try expectEqual(lead.nMultiBytes(), 2);
     const follow = split(lambda[1]);
     try expectEqual(follow.kind, .follow);
     // mask property check
