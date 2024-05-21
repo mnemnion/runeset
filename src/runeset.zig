@@ -209,7 +209,6 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 var threeMask = toMask(T3[threeOff]);
                 threeMask.add(three);
                 T3[threeOff] = threeMask.m;
-                idx += nB;
                 if (nB == 3)
                     back += 3
                 else {
@@ -219,6 +218,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                     sieve[idx - back + 2] = sieve[idx + 2];
                     sieve[idx - back + 3] = sieve[idx + 3];
                 }
+                idx += nB;
             },
         }
     }
@@ -243,7 +243,6 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     // We now know the T4 header offset:
     // Length of header (4) + compacted T2 + popcount hi T2
     const T4Head = 4 + nonZeroCount(&T2) + popCountSlice(T2[TWO_MAX..]);
-    std.debug.print("T4 header offset {d}\n", .{T4Head});
     header[T4_OFF] = T4Head;
     // Allocate T4: this is counted by a popcount of all
     // elements of T2 which have a fourth byte, then
@@ -284,7 +283,10 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 const threeMask = toMask(T3[threeOff]);
                 assert(threeMask.isIn(three));
                 const fourLow = threeMask.lowerThan(three).?;
-                const fourOff = fourLow + popCountSlice(T3[0 .. threeOff - 1]);
+                const fourOff = if (threeOff == 0)
+                    fourLow
+                else
+                    fourLow + popCountSlice(T3[0..threeOff]);
                 if (idx + 3 >= sieve.len) return InvalidUnicode;
                 const four = codeunit(sieve[idx + 3]);
                 if (four.kind != .follow) return InvalidUnicode;
@@ -306,7 +308,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     assert(4 + T2c.len + T3.len + T4.len == setLen);
     const setBody = try allocator.alloc(u64, setLen);
     @memcpy(setBody[0..4], &header);
-    @memcpy(setBody[4..T2c.len], T2c);
+    @memcpy(setBody[4..T3off], T2c);
     @memcpy(setBody[T3off..T4off], T3);
     @memcpy(setBody[T4off..], T4);
     return setBody;
@@ -360,13 +362,14 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const c_mask = toMask(set[c_loc]);
             if (!c_mask.isIn(c)) return 0;
             if (nB == 3) return 3;
-            const d_off = if (c_loc == t2_end + 1)
+            const d_off = if (c_loc == t2_end)
                 c_mask.lowerThan(c).?
             else
-                c_mask.lowerThan(c).? + popCountSlice(set[t2_end .. c_loc - 1]);
+                c_mask.lowerThan(c).? + popCountSlice(set[t2_end..c_loc]);
+            const d_loc = set[T4_OFF] + d_off;
             const d = codeunit(str[3]);
             if (d.kind != .follow) return null;
-            const d_mask = toMask(set[d_off]);
+            const d_mask = toMask(set[d_loc]);
             if (d_mask.isIn(d)) return 4 else return 0;
         },
     }
@@ -447,12 +450,18 @@ const alfagreek = alphabet ++ greek;
 
 const math = "∀∁∂∃∄∅∆∇∈∉∊∋∌∍∎∏∐∑−∓∔∕∖∗∘∙√∛∜∝∞∟∠∡∢∣∤∥∦∧∨∩∪∫∬∭∮∯∰∱∲∳∴∵∶∷∸∹∺∻∼∽∾∿≀≁≂≃≄≅≆≇≈≉≊≋≌≍≎≏≐≑≒≓≔≕≖≗≘≙≚≛≜≝≞≟≠≡≢≣≤≥≦≧≨≩≪≫≬≭≮≯≰≱≲≳≴≵≶≷≸≹≺≻≼≽≾≿⊀⊁⊂⊃⊄⊅⊆⊇⊈⊉⊊⊋⊌⊍⊎⊏⊐⊑⊒⊓⊔⊕⊖⊗⊘⊙⊚⊛⊜⊝⊞⊟⊠⊡⊢⊣⊤⊥⊦⊧⊨⊩⊪⊫⊬⊭⊮⊯⊰⊱⊲⊳⊴⊵⊶⊷⊸⊹⊺⊻⊼⊽⊾⊿⋀⋁⋂⋃⋄⋅⋆⋇⋈⋉⋊⋋⋌⋍⋎⋏⋐⋑⋒⋓⋔⋕⋖⋗⋘⋙⋚⋛⋜⋝⋞⋟⋠⋡⋢⋣⋤⋥⋦⋧⋨⋩⋪⋫⋬⋭⋮⋯⋰⋱⋲⋳⋴⋵⋶⋷⋸⋹⋺⋻⋼⋽⋾⋿";
 
+const deseret = "𐐀𐐁𐐂𐐃𐐄𐐅𐐆𐐇𐐈𐐉𐐊𐐋𐐌𐐍𐐎𐐏𐐐𐐑𐐒𐐓𐐔𐐕𐐖𐐗𐐘𐐙𐐚𐐛𐐜𐐝𐐞𐐟𐐠𐐡𐐢𐐣𐐤𐐥𐐦𐐧𐐨𐐩𐐪𐐫𐐬𐐭𐐮𐐯𐐰𐐱𐐲𐐳𐐴𐐵𐐶𐐷𐐸𐐹𐐺𐐻𐐼𐐽𐐾𐐿𐑀𐑁𐑂𐑃𐑄𐑅𐑆𐑇𐑈𐑉𐑊𐑋𐑌𐑍𐑎𐑏";
+
+const maxsyma = alfagreek ++ math ++ deseret;
+
 test "create and match strings" {
     const allocator = std.testing.allocator;
     try buildAndTestString(alphabet, allocator);
     try buildAndTestString(greek, allocator);
     try buildAndTestString(alfagreek, allocator);
     try buildAndTestString(math, allocator);
+    try buildAndTestString(deseret, allocator);
+    try buildAndTestString(maxsyma, allocator);
 }
 
 test "ASCII createBodyFromString" {
