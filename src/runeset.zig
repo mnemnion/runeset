@@ -1,23 +1,15 @@
 //! libruneset: fast utf8 codepoint sets for Zig
 //!
-//! We begin with the canonical charsets, which can represent arbitrary
-//! classes of characters and support the big three set operations.
+//! Provides tools for working with sets of Unicode codepoints,
+//! also known as characters or runes.
 //!
-//! This will be enhanced with ranged charsets, which can take a small
-//! number of ranges (three seems right) for a more compact memory
-//! layout, and similar speed for testing membership.  These will operate
-//! against each other in union, intersection, and difference, as well as
-//! against canonical sets.  This will be represented as a tagged union,
-//! which also includes inverted (anything not in set) variants on both.
+//! The primary type is RuneSets, which may be constructed in
+//! several ways.  These support very fast membership tests
+//! through bitmasks and popcount, and are capable to encoding
+//! arbitrary sets of characters.
 //!
-//! All set operations will be nondestructive, returning a new set.  Some
-//! cases of binary operations on two ranged sets will return a canonical
-//! set, any operation involving a canonical set will return a canonical
-//! set.  All ASCII sets will be canonical, since there's no advantage in
-//! using a ranged representation there.
-//!
-//! The body of a canonical set is a `[]const u64`, with an internal structure
-//! defined by the algorithms which use them.
+//! They (will) also allow nondestructive set operations: union, set,
+//! and difference.  Probably subset, equality, and iteration.
 
 const std = @import("std");
 const ArrayList = std.ArrayList;
@@ -31,8 +23,6 @@ const toMask = Mask.toMask;
 pub const CodeUnit = elements.CodeUnit;
 /// codeunit(:u8) creates a CodeUnit
 pub const codeunit = elements.codeunit;
-
-const RuneSet = []const u64;
 
 const InvalidUnicode = error.InvalidUnicode;
 
@@ -48,6 +38,53 @@ const T4_OFF = 3;
 const TWO_MAX = 32; // maximum cu.body for two byte lead
 const THREE_MAX = 48; // maximum for three byte lead
 const FOUR_MAX = 56; // maximum for four-byte lead
+
+pub const RuneSet = struct {
+    body: []const u64,
+
+    // some names for meaningful operations
+    inline fn leadMask(self: *RuneSet) Mask {
+        return toMask(self[LEAD]);
+    }
+
+    inline fn t2Len(self: *RuneSet) usize {
+        return @popCount(self[LEAD]);
+    }
+
+    inline fn t2offset(_: *RuneSet) usize {
+        return 4;
+    }
+
+    inline fn t3offset(self: *RuneSet) usize {
+        return 4 + self.t2Len();
+    }
+
+    inline fn t4offset(self: *RuneSet) usize {
+        return self[T4_OFF];
+    }
+
+    inline fn maskAt(self: *RuneSet, off: usize) Mask {
+        return toMask(self[off]);
+    }
+
+    /// Create a RuneSet from a mutable `[]u8`, destroying it in the
+    /// process.  Caller is responsible for freeing the argument and
+    /// return value.
+    pub fn createFromMutableString(str: []u8, allocator: Allocator) !RuneSet {
+        return RuneSet{ .body = createBodyFromString(str, allocator) };
+    }
+
+    /// Match one rune at the beginning of the slice.
+    ///
+    /// This is safe to use with invalid UTF-8, and will return null if
+    /// such is encountered.
+    ///
+    /// The normal return value is the number of bytes matched.  Zero
+    /// means that the rune beginning the slice was not a match.
+    pub fn matchOne(self: *RuneSet, slice: []const u8) ?usize {
+        return matchOneDirectly(self.body, slice);
+    }
+};
 
 /// Creates the body of a RuneSet from a mutable string, allocating
 /// a (still mutable) []u64 from the allocator and returning it.
@@ -297,15 +334,16 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
             },
         }
     }
-    // given that the above is correct, we have validated and added
-    // all legal Unicode in the string.
+    // given that the above is correct, we have validated UTF-8,
+    // and added all runes in the string.
     const T2c = compactSlice(&T2);
     // Must be length of lead popcount
     assert(T2c.len == lead.count());
     const T3off = 4 + T2c.len;
-    const T4off = T3off + T3.len;
+    const T4off = header[T4_OFF];
+    assert(T4off == T3off + T3.len);
     const setLen = T4off + T4.len;
-    assert(4 + T2c.len + T3.len + T4.len == setLen);
+    assert(header.len + T2c.len + T3.len + T4.len == setLen);
     const setBody = try allocator.alloc(u64, setLen);
     @memcpy(setBody[0..4], &header);
     @memcpy(setBody[4..T3off], T2c);
@@ -356,16 +394,16 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             if (nB == 2) return 2;
             const c = codeunit(str[2]);
             if (c.kind != .follow) return null;
-            const t2_end = 4 + @popCount(set[LEAD]);
-            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t2_end]);
-            const c_loc = t2_end + c_off;
+            const t3_off = 4 + @popCount(set[LEAD]);
+            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
+            const c_loc = t3_off + c_off;
             const c_mask = toMask(set[c_loc]);
             if (!c_mask.isIn(c)) return 0;
             if (nB == 3) return 3;
-            const d_off = if (c_loc == t2_end)
+            const d_off = if (c_loc == t3_off)
                 c_mask.lowerThan(c).?
             else
-                c_mask.lowerThan(c).? + popCountSlice(set[t2_end..c_loc]);
+                c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
             const d_loc = set[T4_OFF] + d_off;
             const d = codeunit(str[3]);
             if (d.kind != .follow) return null;
@@ -385,6 +423,7 @@ inline fn nonZeroCount(words: []const u64) usize {
     return w;
 }
 
+/// sum of @popCount of all words in region.
 fn popCountSlice(region: []const u64) usize {
     var ct: usize = 0;
     for (region) |w| ct += @popCount(w);
@@ -398,7 +437,9 @@ test popCountSlice {
     try expectEqual(3, popCountSlice(&region));
 }
 
-// remove all zero elements from a slice, returning the now-compaced slice.
+/// Remove all zero elements from a slice, returning the now-compacted slice.
+/// The pointer of the new slice will be the same.  Caller remains responsible
+/// for the original slice's full memory region.
 fn compactSlice(slice: []u64) []u64 {
     var write: usize = 0;
     for (slice) |x| {
@@ -408,6 +449,15 @@ fn compactSlice(slice: []u64) []u64 {
         }
     }
     return slice[0..write];
+}
+
+test compactSlice {
+    var arr: [6]u64 = .{ 0, 1, 2, 0, 1, 0 };
+    const smol = compactSlice(arr[0..]);
+    try expectEqual(3, smol.len);
+    try expectEqual(1, smol[0]);
+    try expectEqual(2, smol[1]);
+    try expectEqual(1, smol[2]);
 }
 
 const testing = std.testing;
@@ -498,15 +548,6 @@ test "two-byte createBodyFromString" {
     const alfa = "αψ";
     try expect(lead.isIn(codeunit(alfa[0])));
     try expect(lead.isIn(codeunit(alfa[2])));
-}
-
-test compactSlice {
-    var arr: [6]u64 = .{ 0, 1, 2, 0, 1, 0 };
-    const smol = compactSlice(arr[0..]);
-    try expectEqual(3, smol.len);
-    try expectEqual(1, smol[0]);
-    try expectEqual(2, smol[1]);
-    try expectEqual(1, smol[2]);
 }
 
 // Run elements tests as well
