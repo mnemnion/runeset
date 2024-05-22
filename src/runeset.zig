@@ -42,6 +42,15 @@ const FOUR_MAX = 56; // maximum for four-byte lead
 // Masks off all two-byte lead codeunits in set[LEAD]
 const MASK_TWO: u64 = codeunit(31).lowMask();
 
+/// RuneSet: a fast character set for UTF-8.
+///
+/// Create with:
+///
+/// - RuneSet.createFromMutableString
+/// - RuneSet.createFromConstString
+/// - ...
+///
+/// Free with `set.free(allocator)`.
 pub const RuneSet = struct {
     body: []const u64,
 
@@ -82,11 +91,24 @@ pub const RuneSet = struct {
         return self.body[T4_OFF] == 0;
     }
 
+    pub fn free(self: *const RuneSet, alloc: Allocator) void {
+        alloc.free(self.body);
+    }
+
     /// Create a RuneSet from a mutable `[]u8`, destroying it in the
     /// process.  Caller is responsible for freeing the argument and
-    /// return value.
+    /// return value; delete the latter with `set.free(allocator)`.
     pub fn createFromMutableString(str: []u8, allocator: Allocator) !RuneSet {
-        return RuneSet{ .body = createBodyFromString(str, allocator) };
+        return RuneSet{ .body = try createBodyFromString(str, allocator) };
+    }
+
+    /// Create a RuneSet from a `[]const u8`.
+    ///
+    /// Delete by passing the same allocator to `set.free(allocator)`.
+    pub fn createFromConstString(str: []const u8, allocator: Allocator) !RuneSet {
+        const s_mut = try makeMutable(str, allocator);
+        defer allocator.free(s_mut);
+        return try RuneSet.createFromMutableString(s_mut, allocator);
     }
 
     /// Match one rune at the beginning of the slice.
@@ -96,7 +118,7 @@ pub const RuneSet = struct {
     ///
     /// The normal return value is the number of bytes matched.  Zero
     /// means that the rune beginning the slice was not a match.
-    pub fn matchOne(self: *RuneSet, slice: []const u8) ?usize {
+    pub fn matchOne(self: *const RuneSet, slice: []const u8) ?usize {
         return matchOneDirectly(self.body, slice);
     }
 
@@ -104,11 +126,11 @@ pub const RuneSet = struct {
     /// the slice.  Returns the number of bytes matched.
     ///
     /// Safe to use on invalid UTF-8, returning null if any is found.
-    pub fn matchMany(self: *RuneSet, slice: []const u8) ?usize {
+    pub fn matchMany(self: *const RuneSet, slice: []const u8) ?usize {
         var idx: usize = 0;
         while (idx < slice.len) {
-            const nB = self.matchOne(slice[idx..]);
-            if (nB) {
+            const nBytes = self.matchOne(slice[idx..]);
+            if (nBytes) |nB| {
                 if (nB == 0)
                     return idx;
                 idx += nB;
@@ -133,6 +155,17 @@ pub const RuneSet = struct {
             idx += nB;
         }
         return idx;
+    }
+
+    /// Test if two RuneSets are equal.
+    pub fn equalTo(self: *const RuneSet, other: *const RuneSet) bool {
+        if (self.body.len != other.body.len) return false;
+        var match = true;
+        for (self.body, other.body) |l, r| {
+            match = match and l == r;
+            if (!match) break;
+        }
+        return match;
     }
 };
 
@@ -544,6 +577,16 @@ fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
     }
 }
 
+fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
+    const set = try RuneSet.createFromConstString(str, alloc);
+    defer set.free(alloc);
+    const matched = set.matchMany(str);
+    if (matched) |m|
+        try expectEqual(str.len, m)
+    else
+        try expect(false);
+}
+
 // Test strings
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -556,7 +599,7 @@ const deseret = "𐐀𐐁𐐂𐐃𐐄𐐅𐐆𐐇𐐈𐐉𐐊𐐋𐐌𐐍𐐎�
 
 const maxsyma = alfagreek ++ math ++ deseret;
 
-test "create and match strings" {
+test "create body and match strings" {
     const allocator = std.testing.allocator;
     try buildAndTestString(alphabet, allocator);
     try buildAndTestString(greek, allocator);
@@ -564,6 +607,16 @@ test "create and match strings" {
     try buildAndTestString(math, allocator);
     try buildAndTestString(deseret, allocator);
     try buildAndTestString(maxsyma, allocator);
+}
+
+test "create set and match strings" {
+    const allocator = std.testing.allocator;
+    try buildAndTestRuneSet(alphabet, allocator);
+    try buildAndTestRuneSet(greek, allocator);
+    try buildAndTestRuneSet(alfagreek, allocator);
+    try buildAndTestRuneSet(math, allocator);
+    try buildAndTestRuneSet(deseret, allocator);
+    try buildAndTestRuneSet(maxsyma, allocator);
 }
 
 test "ASCII createBodyFromString" {
