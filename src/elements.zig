@@ -141,6 +141,16 @@ pub const Mask = struct {
         }
     }
 
+    /// Check u6 element for membership. Used to iterate, and
+    /// in set operations on RuneSets.
+    pub inline fn bitSet(self: *const Mask, member: u6) bool {
+        return self.m | @as(u64, 1) << member == self.m;
+    }
+
+    pub fn iterator(self: *const Mask) MaskIter {
+        return MaskIter{ .mask = self.* };
+    }
+
     /// Return count of all members in set.
     ///
     /// Most popcounts are done on words we don't need to have
@@ -163,6 +173,30 @@ pub const Mask = struct {
     /// Return difference of two Masks as a new Mask
     pub inline fn difference(self: *const Mask, other: *const Mask) Mask {
         return Mask{ .m = self.m & ~other.m };
+    }
+};
+
+/// Mask Iterator. maskIter.next() will provide all
+/// u6 elements of the Mask.
+pub const MaskIter = struct {
+    mask: Mask,
+    i: u6 = 0,
+    pub fn next(itr: *MaskIter) ?u6 {
+        var result: ?u6 = null;
+        while (itr.i < 63) {
+            if (itr.mask.bitSet(itr.i)) {
+                result = itr.i;
+                itr.i += 1;
+                break;
+            } else {
+                itr.i += 1;
+            }
+        }
+        if (result) |r| return r;
+        if (itr.i == 63 and itr.mask.bitSet(itr.i))
+            return itr.i
+        else
+            return null;
     }
 };
 
@@ -203,10 +237,16 @@ test "mask tests" {
     try expect(mask.isIn(B));
     const D = codeunit('D');
     mask.add(D);
-    mask.add(codeunit('Z'));
+    const Z = codeunit('Z');
+    mask.add(Z);
     try expectEqual(mask.higherThan(B).?, 2);
     try expectEqual(mask.lowerThan(D), 1);
     try expectEqual(mask.lowerThan(codeunit('?')), null);
+    var mIter = mask.iterator();
+    try expectEqual(B.body, mIter.next().?);
+    try expectEqual(D.body, mIter.next().?);
+    try expectEqual(Z.body, mIter.next().?);
+    try expectEqual(null, mIter.next());
     var m2 = Mask.toMask(0);
     m2.addRange(codeunit('A'), codeunit('Z'));
     try expect(m2.isIn(D));
