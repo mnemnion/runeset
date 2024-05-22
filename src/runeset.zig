@@ -39,16 +39,19 @@ const TWO_MAX = 32; // maximum cu.body for two byte lead
 const THREE_MAX = 48; // maximum for three byte lead
 const FOUR_MAX = 56; // maximum for four-byte lead
 
+// Masks off all two-byte lead codeunits in set[LEAD]
+const MASK_TWO: u64 = codeunit(31).lowMask();
+
 pub const RuneSet = struct {
     body: []const u64,
 
     // some names for meaningful operations
     inline fn leadMask(self: *RuneSet) Mask {
-        return toMask(self[LEAD]);
+        return toMask(self.body[LEAD]);
     }
 
     inline fn t2Len(self: *RuneSet) usize {
-        return @popCount(self[LEAD]);
+        return @popCount(self.body[LEAD]);
     }
 
     inline fn t2offset(_: *RuneSet) usize {
@@ -60,11 +63,23 @@ pub const RuneSet = struct {
     }
 
     inline fn t4offset(self: *RuneSet) usize {
-        return self[T4_OFF];
+        return self.body[T4_OFF];
     }
 
     inline fn maskAt(self: *RuneSet, off: usize) Mask {
         return toMask(self[off]);
+    }
+
+    // No need for noTwoBytes because LEAD is present
+    // in all cases, so testing a lead byte is always
+    // safe
+
+    inline fn noThreeBytes(self: *RuneSet) bool {
+        return self.body[LEAD] & MASK_TWO == 0;
+    }
+
+    inline fn noFourBytes(self: *RuneSet) bool {
+        return self.body[T4_OFF] == 0;
     }
 
     /// Create a RuneSet from a mutable `[]u8`, destroying it in the
@@ -83,6 +98,41 @@ pub const RuneSet = struct {
     /// means that the rune beginning the slice was not a match.
     pub fn matchOne(self: *RuneSet, slice: []const u8) ?usize {
         return matchOneDirectly(self.body, slice);
+    }
+
+    /// Match as many runes as possible starting from the beginning of
+    /// the slice.  Returns the number of bytes matched.
+    ///
+    /// Safe to use on invalid UTF-8, returning null if any is found.
+    pub fn matchMany(self: *RuneSet, slice: []const u8) ?usize {
+        var idx: usize = 0;
+        while (idx < slice.len) {
+            const nB = self.matchOne(slice[idx..]);
+            if (nB) {
+                if (nB == 0)
+                    return idx;
+                idx += nB;
+            } else {
+                return null;
+            }
+        }
+        return idx;
+    }
+
+    /// Match as many runes as possible starting from the beginning of
+    /// the slice.  Invalid UTF-8 is treated as a failure to match.
+    ///
+    /// Safe to use on invalid UTF-8, including truncated multi-byte
+    /// runes at the end of the slice.
+    pub fn matchManyAllowInvalid(self: *RuneSet, slice: []const u8) usize {
+        var idx: usize = 0;
+        while (idx < slice.len) {
+            const nB = self.matchOne(slice[idx..]) orelse 0;
+            if (nB == 0)
+                return idx;
+            idx += nB;
+        }
+        return idx;
     }
 };
 
@@ -383,6 +433,10 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
         .lead => {
             const nB = a.nMultiBytes() orelse return null;
             assert(nB > 1);
+            // Set may not contain any three bytes:
+            if (nB == 3 and MASK_TWO & set[LEAD] == 0) return 0;
+            // Or any four bytes:
+            if (nB == 4 and set[T4_OFF] == 0) return 0;
             if (nB > str.len) return null;
             const a_mask = toMask(set[LEAD]);
             if (!a_mask.isIn(a)) return 0;
@@ -392,18 +446,16 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const b_mask = toMask(set[b_loc]);
             if (!b_mask.isIn(b)) return 0;
             if (nB == 2) return 2;
+            const t3_off = 4 + @popCount(set[LEAD]);
             const c = codeunit(str[2]);
             if (c.kind != .follow) return null;
-            const t3_off = 4 + @popCount(set[LEAD]);
+            // Slice is safe because we know the T2 span has at least one word
             const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
             const c_loc = t3_off + c_off;
             const c_mask = toMask(set[c_loc]);
             if (!c_mask.isIn(c)) return 0;
             if (nB == 3) return 3;
-            const d_off = if (c_loc == t3_off)
-                c_mask.lowerThan(c).?
-            else
-                c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
+            const d_off = c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
             const d_loc = set[T4_OFF] + d_off;
             const d = codeunit(str[3]);
             if (d.kind != .follow) return null;
