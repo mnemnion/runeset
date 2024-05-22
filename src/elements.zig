@@ -73,6 +73,10 @@ pub const CodeUnit = packed struct(u8) {
         else
             return ~((@as(u64, 1) << (self.body + 1)) - 1);
     }
+
+    pub inline fn byte(self: *const CodeUnit) u8 {
+        return @bitCast(self.*);
+    }
 };
 
 /// Cast raw byte to CodeUnit
@@ -147,8 +151,12 @@ pub const Mask = struct {
         return self.m | @as(u64, 1) << member == self.m;
     }
 
-    pub fn iterator(self: *const Mask) MaskIter {
-        return MaskIter{ .mask = self.* };
+    pub fn iterElements(self: *const Mask) MaskElements {
+        return MaskElements{ .mask = self.* };
+    }
+
+    pub fn iterCodeUnits(self: *const Mask, kind: RuneKind) MaskCodeUnits {
+        return MaskCodeUnits{ .mIter = self.iterElements(), .kind = kind };
     }
 
     /// Return count of all members in set.
@@ -176,12 +184,12 @@ pub const Mask = struct {
     }
 };
 
-/// Mask Iterator. maskIter.next() will provide all
+/// Mask Iterator. maskElements.next() will provide all
 /// u6 elements of the Mask.
-pub const MaskIter = struct {
+pub const MaskElements = struct {
     mask: Mask,
     i: u6 = 0,
-    pub fn next(itr: *MaskIter) ?u6 {
+    pub fn next(itr: *MaskElements) ?u6 {
         var result: ?u6 = null;
         while (itr.i < 63) {
             if (itr.mask.bitSet(itr.i)) {
@@ -200,6 +208,21 @@ pub const MaskIter = struct {
     }
 };
 
+/// Iterate all the CodeUnits of a mask, as provided
+/// with the correct RuneKind
+pub const MaskCodeUnits = struct {
+    mIter: MaskElements,
+    kind: RuneKind,
+    pub fn next(itr: *MaskCodeUnits) ?CodeUnit {
+        const elem = MaskElements.next(&itr.mIter);
+        if (elem) |e| {
+            return CodeUnit{ .kind = itr.kind, .body = e };
+        } else {
+            return null;
+        }
+    }
+};
+
 //| Tests
 
 const expect = std.testing.expect;
@@ -208,8 +231,10 @@ const expectEqual = std.testing.expectEqual;
 test codeunit {
     const A = codeunit('A');
     try expectEqual(A.kind, .hi);
+    try expectEqual('A', A.byte());
     const zero = codeunit('0');
     try expectEqual(zero.kind, .low);
+    try expectEqual('0', zero.byte());
     const lambda = "λ";
     const lead = codeunit(lambda[0]);
     try expectEqual(lead.kind, .lead);
@@ -242,11 +267,16 @@ test "mask tests" {
     try expectEqual(mask.higherThan(B).?, 2);
     try expectEqual(mask.lowerThan(D), 1);
     try expectEqual(mask.lowerThan(codeunit('?')), null);
-    var mIter = mask.iterator();
+    var mIter = mask.iterElements();
     try expectEqual(B.body, mIter.next().?);
     try expectEqual(D.body, mIter.next().?);
     try expectEqual(Z.body, mIter.next().?);
     try expectEqual(null, mIter.next());
+    var cuIter = mask.iterCodeUnits(.hi);
+    try expectEqual(B, cuIter.next().?);
+    try expectEqual(D, cuIter.next().?);
+    try expectEqual(Z, cuIter.next().?);
+    try expectEqual(null, cuIter.next());
     var m2 = Mask.toMask(0);
     m2.addRange(codeunit('A'), codeunit('Z'));
     try expect(m2.isIn(D));
