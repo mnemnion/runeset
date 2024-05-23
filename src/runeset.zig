@@ -25,7 +25,6 @@ pub const CodeUnit = elements.CodeUnit;
 pub const codeunit = elements.codeunit;
 
 const InvalidUnicode = error.InvalidUnicode;
-
 // Meaningful names for the T1 slots
 const LOW = 0;
 const HI = 1;
@@ -39,8 +38,13 @@ const TWO_MAX = 32; // maximum cu.body for two byte lead
 const THREE_MAX = 48; // maximum for three byte lead
 const FOUR_MAX = 56; // maximum for four-byte lead
 
-// Masks off all two-byte lead codeunits in set[LEAD]
-const MASK_TWO: u64 = codeunit(31).lowMask();
+// Masks for info about set[LEAD]
+const MASK_OUT_TWO: u64 = codeunit(31).lowMask();
+const MASK_IN_TWO: u64 = codeunit(32).hiMask();
+const MASK_IN_FOUR: u64 = codeunit(47).lowMask();
+const MASK_OUT_FOUR: u64 = codeunit(48).hiMask();
+// 32..56
+const MASK_IN_THREE: u64 = MASK_OUT_TWO | MASK_OUT_FOUR;
 
 /// RuneSet: a fast character set for UTF-8.
 ///
@@ -50,61 +54,101 @@ const MASK_TWO: u64 = codeunit(31).lowMask();
 /// - RuneSet.createFromConstString
 /// - ...
 ///
-/// Free with `set.free(allocator)`.
+/// Free with `set.deinit(allocator)`.
 pub const RuneSet = struct {
     body: []const u64,
 
     // some names for meaningful operations
-    inline fn leadMask(self: *RuneSet) Mask {
+    inline fn leadMask(self: *const RuneSet) Mask {
         return toMask(self.body[LEAD]);
     }
 
-    inline fn t2Len(self: *RuneSet) usize {
+    inline fn t2Len(self: *const RuneSet) usize {
         return @popCount(self.body[LEAD]);
     }
 
-    inline fn t2offset(_: *RuneSet) usize {
+    inline fn t2start(_: *const RuneSet) usize {
         return 4;
     }
 
-    inline fn t3offset(self: *RuneSet) usize {
+    inline fn t2end(self: *const RuneSet) usize {
         return 4 + self.t2Len();
     }
 
-    inline fn t4offset(self: *RuneSet) usize {
+    // Start of region of T2 containing 3 byte b codeunits
+    inline fn t2_3b_start(self: *const RuneSet) usize {
+        return 4 + @popCount(self.body[LEAD] & MASK_IN_TWO);
+    }
+
+    // Start of region of T2 containing 4 byte b codeunits
+    inline fn t2_4b_start(self: *const RuneSet) usize {
+        return 4 + @popCount(self.body[LEAD] & MASK_OUT_FOUR);
+    }
+
+    // Start of region of T3 containing 3 byte c codeunits
+    inline fn t3_3c_start(self: *const RuneSet) usize {
+        const c4b_off = popCountSlice(self.body[self.t2_4b_start()..self.t2end()]);
+        return self.t3start() + c4b_off;
+    }
+
+    inline fn t3start(self: *const RuneSet) usize {
+        return self.t2end();
+    }
+
+    inline fn t3end(self: *const RuneSet) usize {
+        if (self.body[T4_OFF] == 0)
+            return self.body.len
+        else
+            return self.body[T4_OFF];
+    }
+
+    inline fn t4offset(self: *const RuneSet) usize {
         return self.body[T4_OFF];
     }
 
-    inline fn maskAt(self: *RuneSet, off: usize) Mask {
+    inline fn maskAt(self: *const RuneSet, off: usize) Mask {
         return toMask(self[off]);
+    }
+
+    // Debugging
+    fn debugMaskAt(self: *const RuneSet, off: usize) void {
+        std.debug.print("0x{x:0>16}\n", .{self.body[off]});
     }
 
     // No need for noTwoBytes because LEAD is present
     // in all cases, so testing a lead byte is always
     // safe
 
-    inline fn noThreeBytes(self: *RuneSet) bool {
-        return self.body[LEAD] & MASK_TWO == 0;
+    inline fn noThreeBytes(self: *const RuneSet) bool {
+        return self.body[LEAD] & MASK_OUT_TWO == 0;
     }
 
-    inline fn noFourBytes(self: *RuneSet) bool {
+    inline fn noFourBytes(self: *const RuneSet) bool {
         return self.body[T4_OFF] == 0;
     }
 
-    pub fn free(self: *const RuneSet, alloc: Allocator) void {
+    fn spreadT2(self: *const RuneSet, T2: []u64) void {
+        var iter = self.maskAt(LEAD).iterElements();
+        const body = self.body;
+        while (iter.next()) |e| {
+            T2[e] = body[4 + e];
+        }
+    }
+
+    pub fn deinit(self: *const RuneSet, alloc: Allocator) void {
         alloc.free(self.body);
     }
 
     /// Create a RuneSet from a mutable `[]u8`, destroying it in the
     /// process.  Caller is responsible for freeing the argument and
-    /// return value; delete the latter with `set.free(allocator)`.
+    /// return value; delete the latter with `set.deinit(allocator)`.
     pub fn createFromMutableString(str: []u8, allocator: Allocator) !RuneSet {
         return RuneSet{ .body = try createBodyFromString(str, allocator) };
     }
 
     /// Create a RuneSet from a `[]const u8`.
     ///
-    /// Delete by passing the same allocator to `set.free(allocator)`.
+    /// Delete by passing the same allocator to `set.deinit(allocator)`.
     pub fn createFromConstString(str: []const u8, allocator: Allocator) !RuneSet {
         const s_mut = try makeMutable(str, allocator);
         defer allocator.free(s_mut);
@@ -166,6 +210,36 @@ pub const RuneSet = struct {
             if (!match) break;
         }
         return match;
+    }
+
+    // Return a tuple counting number of one, two, three, and four
+    // byte codepoints
+    fn counts(self: *const RuneSet) struct { usize, usize, usize, usize } {
+        var c: [4]u64 = .{0} ** 4;
+        c[0] = popCountSlice(self.body[LOW..LEAD]);
+        if (self.body[LEAD] == 0) return .{ c[0], c[1], c[2], c[3] };
+        const twosCount: usize = @popCount(self.body[LEAD] & MASK_IN_TWO);
+        c[1] = popCountSlice(self.body[4 .. 4 + twosCount]);
+        if (self.noThreeBytes()) return .{ c[0], c[1], c[2], c[3] };
+        c[2] = popCountSlice(self.body[self.t3_3c_start()..self.t3end()]);
+        if (self.noFourBytes()) return .{ c[0], c[1], c[2], c[3] };
+        c[3] = popCountSlice(self.body[self.t4offset()..]);
+        return .{ c[0], c[1], c[2], c[3] };
+    }
+
+    /// Return a count of runes (Unicode codepoints) in set.
+    pub fn runeCount(self: *const RuneSet) usize {
+        const a, const b, const c, const d = self.counts();
+        return a + b + c + d;
+    }
+
+    /// Return a count of codunits (u8) in set.
+    ///
+    /// This is the required length of buffer for a slice passed to
+    /// `runeset.toString(buf)`.
+    pub fn codeunitCount(self: RuneSet) usize {
+        const a, const b, const c, const d = self.counts();
+        return a + (2 * b) + (3 * c) + (4 * d);
     }
 };
 
@@ -467,7 +541,7 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const nB = a.nMultiBytes() orelse return null;
             assert(nB > 1);
             // Set may not contain any three bytes:
-            if (nB == 3 and MASK_TWO & set[LEAD] == 0) return 0;
+            if (nB == 3 and MASK_OUT_TWO & set[LEAD] == 0) return 0;
             // Or any four bytes:
             if (nB == 4 and set[T4_OFF] == 0) return 0;
             if (nB > str.len) return null;
@@ -577,14 +651,15 @@ fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
     }
 }
 
+// All runes in str must be unique for this test to pass.
 fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
     const set = try RuneSet.createFromConstString(str, alloc);
-    defer set.free(alloc);
+    defer set.deinit(alloc);
     const matched = set.matchMany(str);
-    if (matched) |m|
-        try expectEqual(str.len, m)
-    else
-        try expect(false);
+    if (matched) |m| {
+        try expectEqual(str.len, m);
+        try expectEqual(str.len, set.codeunitCount());
+    } else try expect(false);
 }
 
 // Test strings
@@ -597,6 +672,7 @@ const math = "∀∁∂∃∄∅∆∇∈∉∊∋∌∍∎∏∐∑−∓∔∕
 
 const deseret = "𐐀𐐁𐐂𐐃𐐄𐐅𐐆𐐇𐐈𐐉𐐊𐐋𐐌𐐍𐐎𐐏𐐐𐐑𐐒𐐓𐐔𐐕𐐖𐐗𐐘𐐙𐐚𐐛𐐜𐐝𐐞𐐟𐐠𐐡𐐢𐐣𐐤𐐥𐐦𐐧𐐨𐐩𐐪𐐫𐐬𐐭𐐮𐐯𐐰𐐱𐐲𐐳𐐴𐐵𐐶𐐷𐐸𐐹𐐺𐐻𐐼𐐽𐐾𐐿𐑀𐑁𐑂𐑃𐑄𐑅𐑆𐑇𐑈𐑉𐑊𐑋𐑌𐑍𐑎𐑏";
 
+const matheret = math ++ deseret;
 const maxsyma = alfagreek ++ math ++ deseret;
 
 test "create body and match strings" {
@@ -615,6 +691,7 @@ test "create set and match strings" {
     try buildAndTestRuneSet(greek, allocator);
     try buildAndTestRuneSet(alfagreek, allocator);
     try buildAndTestRuneSet(math, allocator);
+    try buildAndTestRuneSet(matheret, allocator);
     try buildAndTestRuneSet(deseret, allocator);
     try buildAndTestRuneSet(maxsyma, allocator);
 }

@@ -30,7 +30,7 @@ pub const CodeUnit = packed struct(u8) {
     /// Caller guarantees that the CodeUnit is a lead byte
     /// of a multi-byte rune: `cu.kind == .lead`.
     ///
-    /// Illegal lead bytes will return null.
+    /// Invalid lead bytes will return null.
     pub inline fn nMultiBytes(self: *const CodeUnit) ?u8 {
         std.debug.assert(self.kind == .lead);
         return switch (self.body) {
