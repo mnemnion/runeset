@@ -12,8 +12,8 @@
 //! and difference.  Probably subset, equality, and iteration.
 
 const std = @import("std");
-const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const DynamicBitSetUnmanaged = std.bit_set.DynamicBitSetUnmanaged;
 const assert = std.debug.assert;
 const elements = @import("elements.zig");
 
@@ -280,10 +280,24 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[0..TWO_MAX]));
+        defer allocator.free(NT3);
         // TODO we may not need to memset 0 NT3
         // In fact we probably do not. Remove after
         // test coverage anyway.
         @memset(NT3, 0);
+        // We need to track ownership of the four-byte NT3 regions.
+        // In principle, these could be 8 * 64 in width.  We *could*
+        // use a comptime-known value of 512 bits, but this is seriously
+        // wasteful for almost all actual RuneSets, we'll get better data
+        // locality by heap-allocating a DynamicBitSet.  99% of the time it
+        // will be word-backed and live in a register while we're using it.
+        //
+        // Find four-byte range of NT3 by popcounting NT2
+        const NT2b4 = popCountSlice(NT2[THREE_MAX..]);
+        const LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
+        defer LT3_own.deinit(allocator);
+        const RT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
+        defer RT3_own.deinit(allocator);
         // T3 rank
         {
             // These masks tell us which words in NT2 belong
@@ -301,6 +315,7 @@ pub const RuneSet = struct {
             var nT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
             while (nT2iter.next()) |e| {
                 // TODO each of these needs to loop over the requisite offsets
+                const setOwn = if (e >= THREE_MAX) true else false;
                 if (both_T2.isElem(e)) {
                     // Reverse-iterate the mask and test membership
                     const L_tE = toMask(Lbod[L2off] & ~Rbod[R2off]);
@@ -314,14 +329,26 @@ pub const RuneSet = struct {
                             NT3[N3i] = Lbod[L3i] | Rbod[R3i];
                             L3i += 1;
                             R3i += 1;
+                            if (setOwn) {
+                                LT3_own.set(N3i);
+                                RT3_own.set(N3i);
+                            }
+                            N3i += 1;
                         } else if (L_tE.isElem(ee)) {
                             NT3[N3i] = Lbod[L3i];
                             L3i += 1;
+                            if (setOwn) {
+                                LT3_own.set(N3i);
+                            }
+                            N3i += 1;
                         } else if (R_tE.isElem(ee)) {
                             NT3[N3i] = Rbod[R3i];
                             R3i += 1;
+                            if (setOwn) {
+                                RT3_own.set(N3i);
+                            }
+                            N3i += 1;
                         } else unreachable;
-                        N3i += 1;
                     }
                 } else if (L_T2.isElem(e)) {
                     L2off -= 1;
@@ -329,6 +356,9 @@ pub const RuneSet = struct {
                     assert(pc > 0);
                     for (0..pc) |_| {
                         NT3[N3i] = Lbod[L3i];
+                        if (setOwn) {
+                            LT3_own.set(N3i);
+                        }
                         N3i += 1;
                         L3i += 1;
                     }
@@ -338,6 +368,9 @@ pub const RuneSet = struct {
                     assert(pc > 0);
                     for (0..pc) |_| {
                         NT3[N3i] = Rbod[L3i];
+                        if (setOwn) {
+                            RT3_own.set(N3i);
+                        }
                         N3i += 1;
                         R3i += 1;
                     }
@@ -357,6 +390,19 @@ pub const RuneSet = struct {
             @memcpy(Nbod[4..T2end], T2c);
             @memcpy(Nbod[T2end..setLen], NT3);
             return RuneSet{ .body = Nbod };
+        }
+        // T4 setup
+        // - popcount of four-byte range of NT3
+        const NT4len = popCountSlice(NT3[0..NT2b4]);
+        // - allocate NT4
+        const NT4 = try allocator.alloc(u64, NT4len);
+        defer allocator.free(NT4);
+        // TODO again, shouldn't need this
+        @memset(NT4, 0);
+        // T4 rank
+        {
+            // We've tracked ownership of T3, now we need the offset
+            // where c bytes of four-byte runes live
         }
     }
 };
