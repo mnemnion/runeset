@@ -123,6 +123,11 @@ pub const Mask = struct {
         return self.m | cu.inMask() == self.m;
     }
 
+    /// Test if a u6 element is present in mask
+    pub inline fn isElem(self: *const Mask, u: u6) bool {
+        return self.m | @as(u64, 1) << u == self.m;
+    }
+
     /// Return number of bytes lower than cu.body in mask,
     /// if cu inhabits the mask.  Otherwise return null.
     pub inline fn lowerThan(self: *const Mask, cu: CodeUnit) ?u64 {
@@ -153,6 +158,10 @@ pub const Mask = struct {
 
     pub fn iterElements(self: *const Mask) MaskElements {
         return MaskElements{ .mask = self.* };
+    }
+
+    pub fn iterElemBack(self: *const Mask) MaskElemBack {
+        return MaskElemBack{ .mask = self.* };
     }
 
     pub fn iterCodeUnits(self: *const Mask, kind: RuneKind) MaskCodeUnits {
@@ -202,6 +211,29 @@ pub const MaskElements = struct {
         }
         if (result) |r| return r;
         if (itr.i == 63 and itr.mask.bitSet(itr.i))
+            return itr.i
+        else
+            return null;
+    }
+};
+
+pub const MaskElemBack = struct {
+    mask: Mask,
+    i: u6 = 63,
+
+    pub fn next(itr: *MaskElemBack) ?u6 {
+        var result: ?u6 = null;
+        while (itr.i > 0) {
+            if (itr.mask.bitSet(itr.i)) {
+                result = itr.i;
+                itr.i -= 1;
+                break;
+            } else {
+                itr.i -= 1;
+            }
+        }
+        if (result) |r| return r;
+        if (itr.i == 0 and itr.mask.bitSet(itr.i))
             return itr.i
         else
             return null;
@@ -277,6 +309,11 @@ test "mask tests" {
     try expectEqual(D, cuIter.next().?);
     try expectEqual(Z, cuIter.next().?);
     try expectEqual(null, cuIter.next());
+    var bIter = mask.iterElemBack();
+    try expectEqual(Z.body, bIter.next().?);
+    try expectEqual(D.body, bIter.next().?);
+    try expectEqual(B.body, bIter.next().?);
+    try expectEqual(null, bIter.next());
     var m2 = Mask.toMask(0);
     m2.addRange(codeunit('A'), codeunit('Z'));
     try expect(m2.isIn(D));

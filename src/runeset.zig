@@ -39,10 +39,10 @@ const THREE_MAX = 48; // maximum for three byte lead
 const FOUR_MAX = 56; // maximum for four-byte lead
 
 // Masks for info about set[LEAD]
-const MASK_OUT_TWO: u64 = codeunit(31).lowMask();
-const MASK_IN_TWO: u64 = codeunit(32).hiMask();
-const MASK_IN_FOUR: u64 = codeunit(47).lowMask();
-const MASK_OUT_FOUR: u64 = codeunit(48).hiMask();
+const MASK_OUT_TWO: u64 = codeunit(TWO_MAX - 1).lowMask();
+const MASK_IN_TWO: u64 = codeunit(TWO_MAX).hiMask();
+// const MASK_IN_FOUR: u64 = codeunit(47).lowMask();
+const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 // 32..56
 const MASK_IN_THREE: u64 = MASK_OUT_TWO | MASK_OUT_FOUR;
 
@@ -72,13 +72,13 @@ pub const RuneSet = struct {
     }
 
     inline fn t2end(self: *const RuneSet) usize {
-        return 4 + self.t2Len();
+        return self.t2start() + self.t2Len();
     }
 
     // Start of region of T2 containing 3 byte b codeunits
-    inline fn t2_3b_start(self: *const RuneSet) usize {
-        return 4 + @popCount(self.body[LEAD] & MASK_IN_TWO);
-    }
+    // inline fn t2_3b_start(self: *const RuneSet) usize {
+    //     return 4 + @popCount(self.body[LEAD] & MASK_IN_TWO);
+    // }
 
     // Start of region of T2 containing 4 byte b codeunits
     inline fn t2_4b_start(self: *const RuneSet) usize {
@@ -91,10 +91,12 @@ pub const RuneSet = struct {
         return self.t3start() + c4b_off;
     }
 
+    // Start of T3 region
     inline fn t3start(self: *const RuneSet) usize {
         return self.t2end();
     }
 
+    // End of T3 region
     inline fn t3end(self: *const RuneSet) usize {
         if (self.body[T4_OFF] == 0)
             return self.body.len
@@ -240,6 +242,122 @@ pub const RuneSet = struct {
     pub fn codeunitCount(self: RuneSet) usize {
         const a, const b, const c, const d = self.counts();
         return a + (2 * b) + (3 * c) + (4 * d);
+    }
+
+    //| Set Operations
+    //|
+    //| The receiver is L, the comparator is R, and the new set is N
+
+    /// Union of two RuneSets.
+    ///
+    pub fn setUnion(L: *const RuneSet, R: *const RuneSet, allocator: Allocator) !RuneSet {
+        var header: [4]u64 = .{0} ** 4;
+        const Lbod = L.body;
+        const Rbod = R.body;
+        header[LOW] = Lbod[LOW] | Rbod[LOW];
+        header[HI] = Lbod[HI] | Rbod[HI];
+        header[LEAD] = Lbod[LEAD] | Rbod{LEAD};
+        if (header[LEAD] == 0) { // ASCII sets
+            const Nbod = try allocator.alloc(u64, 4);
+            @memcpy(Nbod, &header);
+            return RuneSet{ .body = Nbod };
+        }
+        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        L.spreadT2(&NT2);
+        {
+            var t2i = 4;
+            var rIter = R.toMask(LEAD).iterElements();
+            while (rIter.next()) |rOff| {
+                NT2[rOff] |= Rbod[t2i];
+                t2i += 1;
+            }
+        }
+        if (L.noThreeBytes() and R.noThreeBytes()) {
+            const T2c = compactSlice(&NT2);
+            const Nbod = try allocator.alloc(u64, 4 + T2c.len);
+            @memcpy(Nbod[0..4], &header);
+            @memcpy(Nbod[4..], T2c);
+            return RuneSet{ .body = Nbod };
+        }
+        const NT3 = try allocator.alloc(u64, popCountSlice(NT2[0..TWO_MAX]));
+        // TODO we may not need to memset 0 NT3
+        // In fact we probably do not. Remove after
+        // test coverage anyway.
+        @memset(NT3, 0);
+        // T3 rank
+        {
+            // These masks tell us which words in NT2 belong
+            // To which sets.
+            const L_T2 = toMask(Lbod[LEAD] & ~Rbod[LEAD]);
+            const R_T2 = toMask(Rbod[LEAD] & ~Lbod[LEAD]);
+            const both_T2 = toMask(Lbod[LEAD] & Rbod[LEAD]);
+            // Track progressive offsets into T3s
+            var N3i: usize = 0;
+            var L3i = L.t3start();
+            var R3i = R.t3start();
+            var L2off = L.t2end();
+            var R2off = R.t2end();
+            // Reverse iterate lead mask elements of three and four bytes
+            var nT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
+            while (nT2iter.next()) |e| {
+                // TODO each of these needs to loop over the requisite offsets
+                if (both_T2.isElem(e)) {
+                    // Reverse-iterate the mask and test membership
+                    const L_tE = toMask(Lbod[L2off] & ~Rbod[R2off]);
+                    const R_tE = toMask(Rbod[R2off] & ~Lbod[R2off]);
+                    L2off -= 1;
+                    R2off -= 1;
+                    const both_tE = toMask(Lbod[L2off] & Rbod[R2off]);
+                    var elemIter = toMask(NT2[e]).iterElemBack();
+                    while (elemIter.next()) |ee| {
+                        if (both_tE.isElem(ee)) {
+                            NT3[N3i] = Lbod[L3i] | Rbod[R3i];
+                            L3i += 1;
+                            R3i += 1;
+                        } else if (L_tE.isElem(ee)) {
+                            NT3[N3i] = Lbod[L3i];
+                            L3i += 1;
+                        } else if (R_tE.isElem(ee)) {
+                            NT3[N3i] = Rbod[R3i];
+                            R3i += 1;
+                        } else unreachable;
+                        N3i += 1;
+                    }
+                } else if (L_T2.isElem(e)) {
+                    L2off -= 1;
+                    const pc = @popCount(NT2[e]);
+                    assert(pc > 0);
+                    for (0..pc) |_| {
+                        NT3[N3i] = Lbod[L3i];
+                        N3i += 1;
+                        L3i += 1;
+                    }
+                } else if (R_T2.isElem(e)) {
+                    R2off -= 1;
+                    const pc = @popCount(NT2[e]);
+                    assert(pc > 0);
+                    for (0..pc) |_| {
+                        NT3[N3i] = Rbod[L3i];
+                        N3i += 1;
+                        R3i += 1;
+                    }
+                } else unreachable;
+            } // Sanity checks:
+            assert(L2off == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(R2off == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(L3i == L.t3end());
+            assert(R3i == R.t3end());
+        } // end T3 rank block
+        if (L.noFourBytes() and R.noFourBytes()) {
+            const T2c = compactSlice(&NT2);
+            const T2end = 4 + T2c.len;
+            const setLen = T2end + NT3.len;
+            const Nbod = try allocator.alloc(u64, setLen);
+            @memcpy(Nbod[0..4], &header);
+            @memcpy(Nbod[4..T2end], T2c);
+            @memcpy(Nbod[T2end..setLen], NT3);
+            return RuneSet{ .body = Nbod };
+        }
     }
 };
 
