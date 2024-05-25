@@ -301,7 +301,7 @@ pub const RuneSet = struct {
         // T3 rank
         {
             // These masks tell us which words in NT2 belong
-            // To which sets.
+            // to which sets.
             const L_T2 = toMask(Lbod[LEAD] & ~Rbod[LEAD]);
             const R_T2 = toMask(Rbod[LEAD] & ~Lbod[LEAD]);
             const both_T2 = toMask(Lbod[LEAD] & Rbod[LEAD]);
@@ -314,8 +314,8 @@ pub const RuneSet = struct {
             // Reverse iterate lead mask elements of three and four bytes
             var nT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
             while (nT2iter.next()) |e| {
-                // TODO each of these needs to loop over the requisite offsets
-                const setOwn = if (e >= THREE_MAX) true else false;
+                // We only set ownership for four-byte chars
+                const set_owned = if (e >= THREE_MAX) true else false;
                 if (both_T2.isElem(e)) {
                     // Reverse-iterate the mask and test membership
                     const L_tE = toMask(Lbod[L2off] & ~Rbod[R2off]);
@@ -329,7 +329,7 @@ pub const RuneSet = struct {
                             NT3[N3i] = Lbod[L3i] | Rbod[R3i];
                             L3i += 1;
                             R3i += 1;
-                            if (setOwn) {
+                            if (set_owned) {
                                 LT3_own.set(N3i);
                                 RT3_own.set(N3i);
                             }
@@ -337,14 +337,14 @@ pub const RuneSet = struct {
                         } else if (L_tE.isElem(ee)) {
                             NT3[N3i] = Lbod[L3i];
                             L3i += 1;
-                            if (setOwn) {
+                            if (set_owned) {
                                 LT3_own.set(N3i);
                             }
                             N3i += 1;
                         } else if (R_tE.isElem(ee)) {
                             NT3[N3i] = Rbod[R3i];
                             R3i += 1;
-                            if (setOwn) {
+                            if (set_owned) {
                                 RT3_own.set(N3i);
                             }
                             N3i += 1;
@@ -356,7 +356,7 @@ pub const RuneSet = struct {
                     assert(pc > 0);
                     for (0..pc) |_| {
                         NT3[N3i] = Lbod[L3i];
-                        if (setOwn) {
+                        if (set_owned) {
                             LT3_own.set(N3i);
                         }
                         N3i += 1;
@@ -368,7 +368,7 @@ pub const RuneSet = struct {
                     assert(pc > 0);
                     for (0..pc) |_| {
                         NT3[N3i] = Rbod[L3i];
-                        if (setOwn) {
+                        if (set_owned) {
                             RT3_own.set(N3i);
                         }
                         N3i += 1;
@@ -401,9 +401,57 @@ pub const RuneSet = struct {
         @memset(NT4, 0);
         // T4 rank
         {
-            // We've tracked ownership of T3, now we need the offset
+            // We've tracked ownership of NT3, now we need the offset
             // where c bytes of four-byte runes live
-        }
+            // The +1 is so we don't go under zero when reverse iterating
+            var NT3i = popCountSlice(NT2[THREE_MAX..]) + 1;
+            // calculate intersection of ownership
+            const bothT3_own = try LT3_own.clone(allocator);
+            defer bothT3_own.deinit(allocator);
+            bothT3_own.setIntersection(RT3_own);
+            const LT3off = L.t3end();
+            const RT3off = R.t3end();
+            var NT4i = 0;
+            const LT4i = L.t4offset();
+            const RT4i = R.t4offset();
+            while (NT3i > 0) : (NT3i -= 1) {
+                const i = NT3i - 1;
+                if (bothT3_own.isSet(i)) {
+                    const LT3m = toMask(Lbod[LT3off + i]);
+                    const RT3m = toMask(Rbod[RT3off + i]);
+                    var NT3mIter = toMask(NT3[i]).iterElemBack();
+                    while (NT3mIter.next()) |e| {
+                        if (LT3m.isElem(e) and RT3m.isElem(e)) {
+                            NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
+                            LT4i += 1;
+                            RT4i += 1;
+                        } else if (LT3m.isElem(e)) {
+                            NT4[NT4i] = Lbod[LT4i];
+                            LT4i += 1;
+                        } else if (RT3m.isElem(e)) {
+                            NT4[NT4i] = Rbod[RT4i];
+                        } else unreachable;
+                        NT4i += 1;
+                    } // TODO These are cheaper to do with a popcount
+                    // we don't actually need or use the elements here
+                } else if (LT3_own.isSet(i)) {
+                    var NT3mIter = toMask(NT3[i]).iterElemBack();
+                    while (NT3mIter.next()) |_| {
+                        NT4[NT4i] = Lbod[LT4i];
+                        LT4i += 1;
+                        NT4i += 1;
+                    }
+                } else if (RT3_own.isSet(i)) {
+                    var NT3mIter = toMask(NT3[i]).iterElemBack();
+                    while (NT3mIter.next()) |_| {
+                        NT4[NT4i] = Rbod[RT4i];
+                        NT4i += 1;
+                        RT4i += 1;
+                    }
+                }
+            }
+        } // end T4 rank
+        // Copy and return!
     }
 };
 
