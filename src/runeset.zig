@@ -109,7 +109,7 @@ pub const RuneSet = struct {
     }
 
     inline fn maskAt(self: *const RuneSet, off: usize) Mask {
-        return toMask(self[off]);
+        return toMask(self.body[off]);
     }
 
     // Debugging
@@ -256,7 +256,7 @@ pub const RuneSet = struct {
         const Rbod = R.body;
         header[LOW] = Lbod[LOW] | Rbod[LOW];
         header[HI] = Lbod[HI] | Rbod[HI];
-        header[LEAD] = Lbod[LEAD] | Rbod{LEAD};
+        header[LEAD] = Lbod[LEAD] | Rbod[LEAD];
         if (header[LEAD] == 0) { // ASCII sets
             const Nbod = try allocator.alloc(u64, 4);
             @memcpy(Nbod, &header);
@@ -265,8 +265,8 @@ pub const RuneSet = struct {
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         L.spreadT2(&NT2);
         {
-            var t2i = 4;
-            var rIter = R.toMask(LEAD).iterElements();
+            var t2i: usize = 4;
+            var rIter = toMask(Rbod[LEAD]).iterElements();
             while (rIter.next()) |rOff| {
                 NT2[rOff] |= Rbod[t2i];
                 t2i += 1;
@@ -294,9 +294,9 @@ pub const RuneSet = struct {
         //
         // Find four-byte range of NT3 by popcounting NT2
         const NT2b4 = popCountSlice(NT2[THREE_MAX..]);
-        const LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
+        var LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
         defer LT3_own.deinit(allocator);
-        const RT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
+        var RT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
         defer RT3_own.deinit(allocator);
         // T3 rank
         {
@@ -406,14 +406,14 @@ pub const RuneSet = struct {
             // The +1 is so we don't go under zero when reverse iterating
             var NT3i = popCountSlice(NT2[THREE_MAX..]) + 1;
             // calculate intersection of ownership
-            const bothT3_own = try LT3_own.clone(allocator);
+            var bothT3_own = try LT3_own.clone(allocator);
             defer bothT3_own.deinit(allocator);
             bothT3_own.setIntersection(RT3_own);
             const LT3off = L.t3end();
             const RT3off = R.t3end();
-            var NT4i = 0;
-            const LT4i = L.t4offset();
-            const RT4i = R.t4offset();
+            var NT4i: usize = 0;
+            var LT4i = L.t4offset();
+            var RT4i = R.t4offset();
             while (NT3i > 0) : (NT3i -= 1) {
                 const i = NT3i - 1;
                 if (bothT3_own.isSet(i)) {
@@ -452,6 +452,8 @@ pub const RuneSet = struct {
             }
         } // end T4 rank
         // Copy and return!
+        // Same stub different fn
+        return RuneSet{ .body = &header };
     }
 };
 
@@ -874,6 +876,16 @@ fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
     } else try expect(false);
 }
 
+fn buildAndTestUnion(a: []const u8, b: []const u8, alloc: Allocator) !void {
+    const setA = try RuneSet.createFromConstString(a, alloc);
+    defer setA.deinit(alloc);
+    const setB = try RuneSet.createFromConstString(b, alloc);
+    defer setB.deinit(alloc);
+    const setU = try setA.setUnion(&setB, alloc);
+    defer setU.deinit(alloc);
+    try expect(true);
+}
+
 // Test strings
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -906,6 +918,11 @@ test "create set and match strings" {
     try buildAndTestRuneSet(matheret, allocator);
     try buildAndTestRuneSet(deseret, allocator);
     try buildAndTestRuneSet(maxsyma, allocator);
+}
+
+test "create set unions" {
+    const allocator = std.testing.allocator;
+    try buildAndTestUnion(alphabet, alfagreek, allocator);
 }
 
 test "ASCII createBodyFromString" {
