@@ -883,7 +883,14 @@ fn buildAndTestUnion(a: []const u8, b: []const u8, alloc: Allocator) !void {
     defer setB.deinit(alloc);
     const setU = try setA.setUnion(&setB, alloc);
     defer setU.deinit(alloc);
-    try expect(true);
+    const matchA = setU.matchMany(a);
+    if (matchA) |m| {
+        try expectEqual(a.len, m);
+    } else try expect(false);
+    const matchB = setU.matchMany(b);
+    if (matchB) |m| {
+        try expectEqual(b.len, m);
+    } else try expect(false);
 }
 
 // Test strings
