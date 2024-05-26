@@ -296,10 +296,10 @@ pub const RuneSet = struct {
         //
         // Find four-byte range of NT3 by popcounting NT2
 
-        const NT2b4 = popCountSlice(NT2[THREE_MAX..]);
-        var LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
+        const NT2b4len = popCountSlice(NT2[THREE_MAX..]);
+        var LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4len * 64);
         defer LT3_own.deinit(allocator);
-        var RT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4);
+        var RT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4len * 64);
         defer RT3_own.deinit(allocator);
         // T3 rank
         {
@@ -396,7 +396,7 @@ pub const RuneSet = struct {
         }
         // T4 setup
         // - popcount of four-byte range of NT3
-        const NT4len = popCountSlice(NT3[0..NT2b4]);
+        const NT4len = popCountSlice(NT3[0..NT2b4len]);
         // - allocate NT4
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
@@ -419,6 +419,7 @@ pub const RuneSet = struct {
                     const LT3m = toMask(Lbod[LT3off + i]);
                     const RT3m = toMask(Rbod[RT3off + i]);
                     var NT3mIter = toMask(NT3[i]).iterElemBack();
+                    std.debug.print("NT3[i] popcnt {d}\n", .{@popCount(NT3[i])});
                     while (NT3mIter.next()) |e| {
                         if (LT3m.isElem(e) and RT3m.isElem(e)) {
                             NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
@@ -450,9 +451,16 @@ pub const RuneSet = struct {
                 }
             }
         } // end T4 rank
-        // Copy and return!
-        // Same stub different fn
-        return RuneSet{ .body = &header };
+        const T2c = compactSlice(&NT2);
+        const T2end = 4 + T2c.len;
+        const T3end = T2end + NT3.len;
+        const setLen = T3end + NT4.len;
+        const Nbod = try allocator.alloc(u64, setLen);
+        @memcpy(Nbod[0..4], &header);
+        @memcpy(Nbod[4..T2end], T2c);
+        @memcpy(Nbod[T2end..T3end], NT3);
+        @memcpy(Nbod[T3end..], NT4);
+        return RuneSet{ .body = Nbod };
     }
 };
 

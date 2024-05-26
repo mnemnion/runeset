@@ -222,17 +222,16 @@ pub const MaskElemBack = struct {
     i: u6 = 63,
 
     pub fn next(itr: *MaskElemBack) ?u6 {
-        var result: ?u6 = null;
+        if (itr.i == 0) return null;
         while (itr.i > 0) {
             if (itr.mask.bitSet(itr.i)) {
-                result = itr.i;
+                const result = itr.i;
                 itr.i -= 1;
-                break;
+                return result;
             } else {
                 itr.i -= 1;
             }
         }
-        if (result) |r| return r;
         if (itr.i == 0 and itr.mask.bitSet(itr.i))
             return itr.i
         else
