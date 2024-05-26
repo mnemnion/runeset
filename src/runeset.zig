@@ -132,8 +132,10 @@ pub const RuneSet = struct {
     fn spreadT2(self: *const RuneSet, T2: []u64) void {
         var iter = self.maskAt(LEAD).iterElements();
         const body = self.body;
+        var off: usize = 4;
         while (iter.next()) |e| {
-            T2[e] = body[4 + e];
+            T2[e] = body[off];
+            off += 1;
         }
     }
 
@@ -250,7 +252,7 @@ pub const RuneSet = struct {
 
     /// Union of two RuneSets.
     ///
-    pub fn setUnion(L: *const RuneSet, R: *const RuneSet, allocator: Allocator) !RuneSet {
+    pub fn setUnion(L: *const RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
         var header: [4]u64 = .{0} ** 4;
         const Lbod = L.body;
         const Rbod = R.body;
@@ -279,7 +281,7 @@ pub const RuneSet = struct {
             @memcpy(Nbod[4..], T2c);
             return RuneSet{ .body = Nbod };
         }
-        const NT3 = try allocator.alloc(u64, popCountSlice(NT2[0..TWO_MAX]));
+        const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..THREE_MAX]));
         defer allocator.free(NT3);
         // TODO we may not need to memset 0 NT3
         // In fact we probably do not. Remove after
@@ -376,8 +378,8 @@ pub const RuneSet = struct {
                     }
                 } else unreachable;
             } // Sanity checks:
-            assert(L2off == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
-            assert(R2off == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(L2off == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_THREE));
+            assert(R2off == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_THREE));
             assert(L3i == L.t3end());
             assert(R3i == R.t3end());
         } // end T3 rank block
@@ -881,7 +883,7 @@ fn buildAndTestUnion(a: []const u8, b: []const u8, alloc: Allocator) !void {
     defer setA.deinit(alloc);
     const setB = try RuneSet.createFromConstString(b, alloc);
     defer setB.deinit(alloc);
-    const setU = try setA.setUnion(&setB, alloc);
+    const setU = try setA.setUnion(setB, alloc);
     defer setU.deinit(alloc);
     const matchA = setU.matchMany(a);
     if (matchA) |m| {
@@ -902,6 +904,10 @@ const alfagreek = alphabet ++ greek;
 const math = "∀∁∂∃∄∅∆∇∈∉∊∋∌∍∎∏∐∑−∓∔∕∖∗∘∙√∛∜∝∞∟∠∡∢∣∤∥∦∧∨∩∪∫∬∭∮∯∰∱∲∳∴∵∶∷∸∹∺∻∼∽∾∿≀≁≂≃≄≅≆≇≈≉≊≋≌≍≎≏≐≑≒≓≔≕≖≗≘≙≚≛≜≝≞≟≠≡≢≣≤≥≦≧≨≩≪≫≬≭≮≯≰≱≲≳≴≵≶≷≸≹≺≻≼≽≾≿⊀⊁⊂⊃⊄⊅⊆⊇⊈⊉⊊⊋⊌⊍⊎⊏⊐⊑⊒⊓⊔⊕⊖⊗⊘⊙⊚⊛⊜⊝⊞⊟⊠⊡⊢⊣⊤⊥⊦⊧⊨⊩⊪⊫⊬⊭⊮⊯⊰⊱⊲⊳⊴⊵⊶⊷⊸⊹⊺⊻⊼⊽⊾⊿⋀⋁⋂⋃⋄⋅⋆⋇⋈⋉⋊⋋⋌⋍⋎⋏⋐⋑⋒⋓⋔⋕⋖⋗⋘⋙⋚⋛⋜⋝⋞⋟⋠⋡⋢⋣⋤⋥⋦⋧⋨⋩⋪⋫⋬⋭⋮⋯⋰⋱⋲⋳⋴⋵⋶⋷⋸⋹⋺⋻⋼⋽⋾⋿";
 
 const deseret = "𐐀𐐁𐐂𐐃𐐄𐐅𐐆𐐇𐐈𐐉𐐊𐐋𐐌𐐍𐐎𐐏𐐐𐐑𐐒𐐓𐐔𐐕𐐖𐐗𐐘𐐙𐐚𐐛𐐜𐐝𐐞𐐟𐐠𐐡𐐢𐐣𐐤𐐥𐐦𐐧𐐨𐐩𐐪𐐫𐐬𐐭𐐮𐐯𐐰𐐱𐐲𐐳𐐴𐐵𐐶𐐷𐐸𐐹𐐺𐐻𐐼𐐽𐐾𐐿𐑀𐑁𐑂𐑃𐑄𐑅𐑆𐑇𐑈𐑉𐑊𐑋𐑌𐑍𐑎𐑏";
+
+const han_l = "省說辰拾掠亮凉糧諒勵女旅礪驪黎曆轢憐撚煉秊聯蓮鍊劣烈說念殮獵囹嶺玲羚鈴靈例醴惡僚尿樂療遼暈劉柳溜留紐六陸崙輪慄率利履李泥痢裏里匿吝璘隣麟淋立粒炙什刺度糖洞輻降廓嗀﨏﨑﨓凞益神福精﨟﨡﨣逸﨧﨩飼鶴隷僧勉卑嘆塀層悔憎敏暑海漢爫碑祉祐祝禎突練繁者艹著視謹贈逸響恵舘";
+const han_r = "葉殺沈若略兩梁良量呂廬濾閭麗力歷年戀漣璉練輦連列咽裂廉捻簾令寧怜瑩聆零領禮隸了寮料燎蓼龍阮杻流琉硫類戮倫淪律栗隆吏易梨理罹裡離溺燐藺鱗林臨笠狀識茶切拓宅暴行見兀﨎塚晴﨔猪礼祥靖羽蘒諸﨤都﨨飯館郞侮免勤喝器墨屮慨懲既梅渚煮琢社祈祖禍穀節縉署臭艹褐謁賓辶難頻𤋮";
+const han = "省葉說殺辰沈拾若掠略亮兩凉梁糧良諒量勵呂女廬旅濾礪閭驪麗黎力曆歷轢年憐戀撚漣煉璉秊練聯輦蓮連鍊列劣咽烈裂說廉念捻殮簾獵令囹寧嶺怜玲瑩羚聆鈴零靈領例禮醴隸惡了僚寮尿料樂燎療蓼遼龍暈阮劉杻柳流溜琉留硫紐類六戮陸倫崙淪輪律慄栗率隆利吏履易李梨泥理痢罹裏裡里離匿溺吝燐璘藺隣鱗麟林淋臨立笠粒狀炙識什茶刺切度拓糖宅洞暴輻行降見廓兀嗀﨎﨏塚﨑晴﨓﨔凞猪益礼神祥福靖精羽﨟蘒﨡諸﨣﨤逸都﨧﨨﨩飯飼館鶴郞隷侮僧免勉勤卑喝嘆器塀墨層屮悔慨憎懲敏既暑梅海渚漢煮爫琢碑社祉祈祐祖祝禍禎穀突節練縉繁署者臭艹艹著褐視謁謹賓贈辶逸難響頻恵𤋮舘";
 
 const matheret = math ++ deseret;
 const maxsyma = alfagreek ++ math ++ deseret;
@@ -925,11 +931,13 @@ test "create set and match strings" {
     try buildAndTestRuneSet(matheret, allocator);
     try buildAndTestRuneSet(deseret, allocator);
     try buildAndTestRuneSet(maxsyma, allocator);
+    try buildAndTestRuneSet(han, allocator);
 }
 
 test "create set unions" {
     const allocator = std.testing.allocator;
     try buildAndTestUnion(alphabet, alfagreek, allocator);
+    try buildAndTestUnion(han_l, han_r, allocator);
 }
 
 test "ASCII createBodyFromString" {
