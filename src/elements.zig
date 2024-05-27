@@ -219,23 +219,21 @@ pub const MaskElements = struct {
 
 pub const MaskElemBack = struct {
     mask: Mask,
-    i: u6 = 63,
+    i: i8 = 63,
 
     pub fn next(itr: *MaskElemBack) ?u6 {
-        if (itr.i == 0) return null;
-        while (itr.i > 0) {
-            if (itr.mask.bitSet(itr.i)) {
-                const result = itr.i;
+        var result: ?u6 = null;
+        while (itr.i >= 0) {
+            const e: u6 = @intCast(itr.i);
+            if (itr.mask.bitSet(e)) {
+                result = e;
                 itr.i -= 1;
-                return result;
+                break;
             } else {
                 itr.i -= 1;
             }
         }
-        if (itr.i == 0 and itr.mask.bitSet(itr.i))
-            return itr.i
-        else
-            return null;
+        return result;
     }
 };
 
@@ -321,6 +319,19 @@ test "mask tests" {
     try expect(!m2.isIn(codeunit('@')));
     try expect(!m2.isIn(codeunit('[')));
     try expectEqual(26, m2.count());
+}
+
+test "back iter" {
+    var mask = Mask.toMask(0);
+    const At = codeunit('@');
+    const A = codeunit('A');
+    try expectEqual(0, At.body);
+    mask.add(At);
+    mask.add(codeunit('A'));
+    var iterB = mask.iterElemBack();
+    try expectEqual(A.body, iterB.next().?);
+    try expectEqual(At.body, iterB.next().?);
+    try expectEqual(null, iterB.next());
 }
 
 // test "bleh" {

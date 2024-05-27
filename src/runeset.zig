@@ -15,6 +15,8 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const DynamicBitSetUnmanaged = std.bit_set.DynamicBitSetUnmanaged;
 const assert = std.debug.assert;
+const dbgPrint = std.debug.print;
+
 const elements = @import("elements.zig");
 
 const Mask = elements.Mask;
@@ -112,7 +114,6 @@ pub const RuneSet = struct {
         return toMask(self.body[off]);
     }
 
-    // Debugging
     fn debugMaskAt(self: *const RuneSet, off: usize) void {
         std.debug.print("0x{x:0>16}\n", .{self.body[off]});
     }
@@ -408,8 +409,8 @@ pub const RuneSet = struct {
             // where c bytes of four-byte runes live
             // The +1 is so we don't go under zero when reverse iterating
             var NT3i = popCountSlice(NT2[THREE_MAX..]) + 1;
-            const LT3off = L.t3end();
-            const RT3off = R.t3end();
+            const LT3off = L.t3start();
+            const RT3off = R.t3start();
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
@@ -429,6 +430,7 @@ pub const RuneSet = struct {
                             LT4i += 1;
                         } else if (RT3m.isElem(e)) {
                             NT4[NT4i] = Rbod[RT4i];
+                            RT4i += 1;
                         } else unreachable;
                         NT4i += 1;
                     }
@@ -504,7 +506,6 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
                 lead.add(cu);
                 const nBytes = cu.nMultiBytes();
                 if (nBytes) |nB| {
-                    std.debug.assert(nB <= 4);
                     if (idx + nB > sieve.len) {
                         return InvalidUnicode;
                     }
@@ -535,9 +536,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
         @memcpy(memHeader, &header);
         return memHeader;
     }
-    // std.debug.print("str after sieve:\n{s}\n", .{sieve});
     sieve = sieve[0 .. sieve.len - back];
-    // std.debug.print("str after pass one:\n{s}\n", .{sieve});
     // sieve for second bytes
     var T2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX; // Masks for all second bytes.
     idx = 0;
@@ -951,33 +950,22 @@ test "create set and match strings" {
     try buildAndTestRuneSet(han, allocator);
 }
 
-test "debug T4 set unions" {
-    const allocator = std.testing.allocator;
-    const linB = try RuneSet.createFromConstString(linearB, allocator);
-    defer linB.deinit(allocator);
-    std.debug.print("linB.len: {d}\nT4_OFF: {d}\n", .{ linB.body.len, linB.body[T4_OFF] });
-    std.debug.print("first: 0x{x:0>16}\n", .{linB.body[6]});
-    std.debug.print("second: 0x{x:0>16}\n", .{linB.body[7]});
-    std.debug.print("T3: 0x{x:0>16}\n", .{linB.body[5]});
-    const linB_union = try buildUnion(linearB_l, linearB_r, allocator);
-    defer linB_union.deinit(allocator);
-    std.debug.print("union.len {d}\nT4_OFF: {d}\n", .{ linB_union.body.len, linB_union.body[T4_OFF] });
-    std.debug.print("first: 0x{x:0>16}\n", .{linB_union.body[6]});
-    std.debug.print("second: 0x{x:0>16}\n", .{linB_union.body[7]});
-    std.debug.print("T3: 0x{x:0>16}\n", .{linB_union.body[5]});
-    const linB_r = try RuneSet.createFromConstString(linearB_r, allocator);
-    defer linB_r.deinit(allocator);
-    std.debug.print("linB_r.len: {d}\nT4_OFF: {d}\n", .{ linB_r.body.len, linB_r.body[T4_OFF] });
-    std.debug.print("first: 0x{x:0>16}\n", .{linB_r.body[6]});
-    try expect(true);
-}
+//     const allocator = std.testing.allocator;
+//     const linB = try RuneSet.createFromConstString(linearB, allocator);
+//     defer linB.deinit(allocator);
+//     const linB_union = try buildUnion(linearB_l, linearB_r, allocator);
+//     defer linB_union.deinit(allocator);
+//     const linB_r = try RuneSet.createFromConstString(linearB_r, allocator);
+//     defer linB_r.deinit(allocator);
+//     try expect(true);
+// }
 
 test "create set unions" {
     const allocator = std.testing.allocator;
     try buildAndTestUnion(alphabet, alfagreek, allocator);
     try buildAndTestUnion(han_l, han_r, allocator);
     try buildAndTestUnion(math, deseret, allocator);
-    // try buildAndTestUnion(linearB_l, linearB_r, allocator);
+    try buildAndTestUnion(linearB_l, linearB_r, allocator);
 }
 
 test "ASCII createBodyFromString" {
