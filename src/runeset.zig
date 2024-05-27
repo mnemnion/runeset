@@ -471,31 +471,8 @@ pub const RuneSet = struct {
         const Rbod = R.body;
         header[LOW] = Lbod[LOW] & ~Rbod[LOW];
         header[HI] = Lbod[HI] & ~Rbod[HI];
-        header[LEAD] = Lbod[LEAD] & ~Rbod[LEAD];
         header[T4_OFF] = 0;
-        if (header[LEAD] == 0) {
-            const setBody = try allocator.alloc(u64, 4);
-            @memcpy(setBody, &header);
-            return RuneSet{ .body = setBody };
-        }
-        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
-        L.spreadT2(&NT2);
-        if (!Rbod[LEAD] == 0) {
-            var RT2iter = toMask(Rbod[LEAD]).iterElements();
-            var RT2i = 4;
-            while (RT2iter.next()) |e| {
-                NT2[e] &= ~Rbod[RT2i];
-                RT2i += 1;
-            }
-        }
-        if (L.noThreeBytes() and R.noThreeBytes()) {
-            const T2c = compactSlice(&NT2);
-            const setBody = try allocator.alloc(u64, 4 + T2c.len);
-            @memcpy(setBody[0..4], &header);
-            @memcpy(setBody[4..], T2c.len);
-            return RuneSet{ .body = setBody };
-        }
-
+        _ = allocator;
         return &header; // TODO obvious panic is obvious
     }
 };
