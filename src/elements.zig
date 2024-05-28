@@ -108,6 +108,11 @@ pub const Mask = struct {
         self.m |= cu.inMask();
     }
 
+    pub fn remove(self: *Mask, cu: CodeUnit) void {
+        std.debug.assert(self.isIn(cu));
+        self.m &= ~cu.inMask();
+    }
+
     /// Add a range of CodeUnits to a Mask.
     /// Caller guarantees that the range is ordered, and
     /// that the bytes are of the same `.kind`.

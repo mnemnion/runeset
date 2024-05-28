@@ -110,6 +110,27 @@ pub const RuneSet = struct {
         return self.body[T4_OFF];
     }
 
+    inline fn t2slice(self: *const RuneSet) ?[]u64 {
+        if (self.body[LEAD] == 0)
+            return null
+        else
+            return self.body[4..self.t2end()];
+    }
+
+    inline fn t3slice(self: *const RuneSet) ?[]u64 {
+        if (self.noThreeBytes())
+            return null
+        else
+            return self.body[self.t3start()..self.t3end()];
+    }
+
+    inline fn t4slice(self: *const RuneSet) ?[]u64 {
+        if (self.noFourBytes())
+            return null
+        else
+            return self.body[self.t4offset()..];
+    }
+
     inline fn maskAt(self: *const RuneSet, off: usize) Mask {
         return toMask(self.body[off]);
     }
@@ -122,6 +143,8 @@ pub const RuneSet = struct {
     // in all cases, so testing a lead byte is always
     // safe
 
+    // This counts any third byte, including one in
+    // a four-byte char
     inline fn noThreeBytes(self: *const RuneSet) bool {
         return self.body[LEAD] & MASK_OUT_TWO == 0;
     }
@@ -471,8 +494,111 @@ pub const RuneSet = struct {
         const Rbod = R.body;
         header[LOW] = Lbod[LOW] & ~Rbod[LOW];
         header[HI] = Lbod[HI] & ~Rbod[HI];
+        var LLeadMask = toMask(Lbod[LEAD]);
+        var RLeadMask = toMask(Rbod[LEAD]);
         header[T4_OFF] = 0;
-        _ = allocator;
+        // Tier 2
+        // We blow up LT2:
+        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        L.spreadT2(&NT2);
+        // Take an intersection of LEADS
+        const commonLead = toMask(Rbod[LEAD] & Lbod[LEAD]);
+        {
+            // Iterate and diff
+            var RT2i = R.t2Start();
+            var T2iter = commonLead.iterElem();
+            while (T2iter.next()) |e| {
+                if (e >= TWO_MAX) break;
+                assert(NT2[e] != 0);
+                NT2[e] &= ~Rbod[RT2i];
+                RT2i += 1;
+                // If this clears the mask, remove the LEAD bit
+                if (NT2[e] == 0)
+                    LLeadMask.remove(codeunit(e));
+            }
+        } // Only L matters here: can't remove what you don't have
+        if (L.noThreeBytes()) {
+            header[LEAD] = LLeadMask.m;
+            const T2c = compactSlice(&NT2);
+            const Nbod = try allocator.alloc(u64, 4 + T2c.len);
+            @memcpy(Nbod[0..4], &header);
+            @memcpy(Nbod[4..], T2c);
+            return RuneSet{ .body = Nbod };
+        }
+        // Tier 3
+        //
+        // Once again, we take difference on final bytes,
+        // then, for any empty three-byte-final mask, we
+        // remove the corresponding bit in T2. If that clears
+        // a T2 word, we remove that bit in LLeadMask.
+        //
+        // Bit tricky because T3 is backward. So we copy over all
+        // of LT3 and work from the end back.
+        const LT3 = L.t3slice().?; // we know this has contents
+        const NT3 = try allocator.alloc(u64, LT3.len);
+        defer allocator.free(NT3);
+        @memcpy(NT3, LT3);
+        const maybeRT3 = R.t3slice();
+        if (maybeRT3) |RT3| {
+            var LT2m = toMask(Lbod[LEAD]);
+            var LT2iter = LT2m.iterElements();
+            const RT2 = R.t2slice().?;
+            var RT2i: usize = 0;
+            var NT3i: usize = 0;
+            var RT3i: usize = 0;
+            while (LT2iter.next()) |e| {
+                // skip two-byte region
+                if (e < TWO_MAX) {
+                    if (RLeadMask.isElem(e))
+                        RT2i += 1;
+                    continue;
+                }
+                if (e >= FOUR_MAX)
+                    break;
+                // In three-byte region
+                if (RLeadMask.isElem(e)) {
+                    // Mask together T3s
+                    // We need a mask for LT2 and RT2 c words
+                    const RT2c_mask = toMask(RT2[RT2i]);
+                    const LT2c_mask = toMask(NT2[e]); // untouched in the last pass
+                    assert(LT2c_mask.m != 0);
+                    // Iterate the union
+                    const UT2cIter = RT2c_mask.setunion(LT2c_mask).iterElements();
+                    while (UT2cIter.next()) |ee| {
+                        if (RT2c_mask.isElem(ee) and LT2c_mask.isElem(ee)) {
+                            NT3[NT3i] &= ~RT3[RT3i];
+                            // null?
+                            if (NT3[NT3i] == 0) {
+                                var NT2m = toMask(NT2[e]);
+                                NT2m.remove(codeunit(ee));
+                                NT2[e] = NT2m.m;
+                                // null?
+                                if (NT2[e] == 0)
+                                    LLeadMask.remove(e);
+                            }
+                            NT3i += 1;
+                            RT3i += 1;
+                        } else if (LT2c_mask.isElem(ee)) {
+                            NT3i += 1;
+                        } else unreachable;
+                    }
+                }
+            }
+            if (L.noFourBytes()) {
+                header[LEAD] = LLeadMask.m;
+                const T2c = compactSlice(&NT2);
+                const T2end = 4 + T2c.len;
+                const T3c = compactSlice(NT3);
+                const setLen = T2end + T3c.len;
+                const Nbod = try allocator.alloc(u64, setLen);
+                @memcpy(Nbod[0..4], &header);
+                @memcpy(Nbod[4..T2end], T2c);
+                @memcpy(Nbod[T2end..setLen], T3c);
+                return RuneSet{ .body = Nbod };
+            }
+        }
+        // Tier 4.
+        // Same deal: Iterate d byte region of T2,
         return &header; // TODO obvious panic is obvious
     }
 };
