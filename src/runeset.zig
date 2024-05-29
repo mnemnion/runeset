@@ -507,6 +507,7 @@ pub const RuneSet = struct {
         const Rbod = R.body;
         header[LOW] = Lbod[LOW] & ~Rbod[LOW];
         header[HI] = Lbod[HI] & ~Rbod[HI];
+        // We always assign this to header[LEAD] before returning
         var LLeadMask = toMask(Lbod[LEAD]);
         header[T4_OFF] = 0;
         // Tier 2
@@ -551,16 +552,15 @@ pub const RuneSet = struct {
         if (!R.noThreeBytes()) {
             // We go *back* through the C region of NT2, and *forward*
             // through both T3s. To track the latter, we iterate NT2 using
-            // the union of both LEADs.  Which we have:
-            const cT2iter = commonLead.iterElemBack();
-            // Track ownership of T2 bits on each end:
+            // the union of both LEADs.
+            const cT2iter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
+            // Track ownership of T2 bits on each side:
             const LT2m = toMask(Lbod[LEAD]);
             const RT2m = toMask(Rbod[LEAD]);
             // Track progress forward through T3 of both sides
             var NT3i: usize = 0; // we've copied over all of LT3 to NT3.
             var RT3i = R.t3start(); // We know there are three-byte seqs in R
-            // c-byte region of NT2 is 'clean', we need to track RT2 offset backward
-            // to successfully skip d-bytes on the way in
+            // c-byte region of NT2 is all from L2, but RT2 offset needs tracking
             var RT2i = R.t3start() - 1;
             while (cT2iter.next()) |e2| {
                 if (e2 >= THREE_MAX) {
@@ -577,7 +577,7 @@ pub const RuneSet = struct {
                 } else if (e2 < TWO_MAX) { // done
                     break;
                 }
-                // In c region of T2s
+                // In c region of T2s.  T3 indices are past d byte region
                 const inLT2 = LT2m.isElem(e2);
                 if (!inLT2) {
                     // must be in R, we skip
@@ -589,16 +589,19 @@ pub const RuneSet = struct {
                 }
                 const inRT2 = RT2m.isElem(e2);
                 if (inLT2 and inRT2) {
-                    // iterate the union backward
+                    // Find T3 intersections and take difference
                     assert(NT2[e2] != 0);
                     const eLT2m = toMask(NT2[e2]);
                     assert(Rbod[RT2i] != 0);
                     const eRT2m = toMask(Rbod[RT2i]);
-                    var bothT2iter = toMask(eLT2m.m | eRT2m.m).iterElemBack();
-                    while (bothT2iter.next()) |e3| {
+                    // We're done with RT2i, decrement
+                    RT2i -= 1;
+                    // iterate the union of this T2 word backward
+                    var unionT2iter = toMask(eLT2m.m | eRT2m.m).iterElemBack();
+                    while (unionT2iter.next()) |e3| {
                         if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
                             NT3[NT3i] &= ~Rbod[RT3i];
-                            // nullify back
+                            // Check for T3 null and mask out T2 bit if so
                             if (NT3[NT3i] == 0) {
                                 var eNT2 = toMask(NT2[e2]);
                                 eNT2.remove(codeunit(e3));
@@ -618,12 +621,11 @@ pub const RuneSet = struct {
                     if (NT2[e2] == 0) {
                         LLeadMask.remove(codeunit(e2));
                     }
-                } else { // must be an RT2 bit
-                    assert(inRT2);
-                    RT3i += 1;
+                } else { // Must be L2, no action needed
+                    assert(inLT2);
                 }
             }
-        } else { // else no R is only two byte or less, no action needed
+        } else { // else R is only two byte or less, no action needed
             assert(R.t3slice() == null);
         }
         // Once again, R 4 byte is irrelevant if L has none
@@ -637,6 +639,21 @@ pub const RuneSet = struct {
             @memcpy(Nbod[0..4], &header);
             @memcpy(Nbod[4..T2end], T2c);
             @memcpy(Nbod[T2end..setLen], T3c);
+            return RuneSet{ .body = Nbod };
+        } else if (R.noFourBytes()) {
+            // we can just copy LT4 and return
+            header[LEAD] = LLeadMask.m;
+            const T2c = compactSlice(&NT2);
+            const T2end = 4 + T2c.len;
+            const T3c = compactSlice(NT3);
+            const T3end = T2end + T3c.len;
+            const T4 = L.t4slice();
+            const setLen = T3end + T4.len;
+            const Nbod = try allocator.alloc(u64, setLen);
+            @memcpy(Nbod[0..4], &header);
+            @memcpy(Nbod[4..T2end], T2c);
+            @memcpy(Nbod[T2end..T3end], T3c);
+            @memcpy(Nbod[T3end..setLen], T4);
             return RuneSet{ .body = Nbod };
         }
         // Tier 4.
