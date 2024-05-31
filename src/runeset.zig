@@ -122,14 +122,14 @@ pub const RuneSet = struct {
             return self.body[4..self.t2end()];
     }
 
-    inline fn t3slice(self: *const RuneSet) ?[]u64 {
+    inline fn t3slice(self: *const RuneSet) ?[]const u64 {
         if (self.noThreeBytes())
             return null
         else
             return self.body[self.t3start()..self.t3end()];
     }
 
-    inline fn t4slice(self: *const RuneSet) ?[]u64 {
+    inline fn t4slice(self: *const RuneSet) ?[]const u64 {
         if (self.noFourBytes())
             return null
         else
@@ -510,6 +510,11 @@ pub const RuneSet = struct {
         // We always assign this to header[LEAD] before returning
         var LLeadMask = toMask(Lbod[LEAD]);
         header[T4_OFF] = 0;
+        if (Lbod[LEAD] == 0) {
+            const Nbod = try allocator.alloc(u64, 4);
+            @memcpy(Nbod, &header);
+            return RuneSet{ .body = Nbod };
+        }
         // Tier 2
         // We blow up LT2:
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
@@ -518,8 +523,8 @@ pub const RuneSet = struct {
         const commonLead = toMask(Rbod[LEAD] & Lbod[LEAD]);
         {
             // Iterate and diff
-            var RT2i = R.t2Start();
-            var T2iter = commonLead.iterElem();
+            var RT2i = R.t2start();
+            var T2iter = commonLead.iterElements();
             while (T2iter.next()) |e| {
                 if (e >= TWO_MAX) break;
                 assert(NT2[e] != 0);
@@ -545,7 +550,7 @@ pub const RuneSet = struct {
         // remove the corresponding bit in T2. If that clears
         // a T2 word, we remove that bit in LLeadMask.
         //
-        const LT3 = L.t3slice().?; // we know this has contents
+        const LT3: []const u64 = L.t3slice().?; // we know this has contents
         const NT3 = try allocator.alloc(u64, LT3.len);
         defer allocator.free(NT3);
         @memcpy(NT3, LT3);
@@ -553,7 +558,7 @@ pub const RuneSet = struct {
             // We go *back* through the C region of NT2, and *forward*
             // through both T3s. To track the latter, we iterate NT2 using
             // the union of both LEADs.
-            const cT2iter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
+            var cT2iter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
             // Track ownership of T2 bits on each side:
             const LT2m = toMask(Lbod[LEAD]);
             const RT2m = toMask(Rbod[LEAD]);
@@ -647,7 +652,7 @@ pub const RuneSet = struct {
             const T2end = 4 + T2c.len;
             const T3c = compactSlice(NT3);
             const T3end = T2end + T3c.len;
-            const T4 = L.t4slice();
+            const T4 = L.t4slice().?; // checked in prior if statement
             const setLen = T3end + T4.len;
             const Nbod = try allocator.alloc(u64, setLen);
             @memcpy(Nbod[0..4], &header);
@@ -660,7 +665,7 @@ pub const RuneSet = struct {
         // Same deal: Iterate d byte region of T2,
         // find corresponding regions of LT3 and RT3,
         // diff overlaps, remove nulls all the way up to LLeadMask
-        return &header; // TODO obvious panic is obvious
+        return RuneSet{ .body = &header }; // TODO obvious panic is obvious
     }
 };
 
@@ -1059,17 +1064,33 @@ fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
     var idx: usize = 0;
     while (idx < s.len) {
         const slice = s[idx..];
-        const nB = codeunit(s[idx]).nBytes() orelse unreachable;
-        const nMatch = matchOneDirectly(set, slice) orelse unreachable;
-        expectEqual(nMatch, nB) catch |err| {
-            std.log.err("not a valid match at index {d}", .{idx});
-            return err;
-        };
+        const nB = codeunit(s[idx]).nBytes() orelse 1;
+        const maybeMatch = matchOneDirectly(set, slice);
+        if (maybeMatch) |nMatch| {
+            expectEqual(nMatch, nB) catch |err| {
+                std.log.err("not a valid match at index {d} in:\n{s}\n", .{ idx, s });
+                return err;
+            };
+        } else {
+            std.log.err("invalid Unicode at {d} in:\n{s}\n", .{ idx, s });
+            try expect(false);
+        }
         idx += nB;
     }
 }
 
-// All runes in str must be unique for this test to pass.
+// test that no part of `str` matches in `set`.
+fn testMatchNone(set: RuneSet, str: []const u8) !void {
+    var idx: usize = 0;
+    while (idx < str.len) {
+        const slice = str[idx..];
+        const nB = codeunit(slice[0]).nBytes() orelse 1;
+        try expectEqual(0, set.matchOne(slice));
+        idx += nB;
+    }
+}
+
+/// All runes in str must be unique for this test to pass.
 fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
     const set = try RuneSet.createFromConstString(str, alloc);
     defer set.deinit(alloc);
@@ -1105,7 +1126,50 @@ fn buildUnion(a: []const u8, b: []const u8, alloc: Allocator) !RuneSet {
     return try setA.setUnion(setB, alloc);
 }
 
-// Test strings
+/// verify correct set difference.
+///
+/// LRstr must be well-formed: str must have all of l and r,
+/// and l and r must not contain any common runes.
+fn verifySetDifference(LR: LRstrings, alloc: Allocator) !void {
+    const setAll = try RuneSet.createFromConstString(LR.str, alloc);
+    defer setAll.deinit(alloc);
+    const setR = try RuneSet.createFromConstString(LR.r, alloc);
+    defer setR.deinit(alloc);
+    const setL = try RuneSet.createFromConstString(LR.l, alloc);
+    defer setL.deinit(alloc);
+    const setAdiffR = try setAll.setDifference(setR, alloc);
+    defer setAdiffR.deinit(alloc);
+    const setAdiffL = try setAll.setDifference(setL, alloc);
+    defer setAdiffL.deinit(alloc);
+    const matchL = setAdiffR.matchMany(LR.l);
+    if (matchL) |nMatch| {
+        try expectEqual(LR.l.len, nMatch);
+    } else try expect(false);
+    const matchR = setAdiffL.matchMany(LR.r);
+    if (matchR) |nMatch| {
+        try expectEqual(LR.r.len, nMatch);
+    } else try expect(false);
+    try testMatchNone(setAdiffL, LR.l);
+    try testMatchNone(setAdiffR, LR.r);
+}
+
+/// A string split into canonical left and right portions.
+///
+/// `str` must have all runes in `l` and `r`, which must not
+/// themselves share any runes in common.
+const LRstrings = struct {
+    l: []const u8,
+    r: []const u8,
+    str: []const u8,
+};
+
+//| Test strings
+
+const ascii: LRstrings = .{
+    .r = "!#%')+-/13579;=?ACEGIKMOQSUWY[]_acegikmoqsuwy{}",
+    .l = " \"$&(*,.02468:<>@BDFHJLNPRTVXZ\\^`bdfhjlnprtvxz|~",
+    .str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~",
+};
 
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const greek = "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩαβγδεζηθικλμνξοπρςστυφχψω";
@@ -1119,7 +1183,7 @@ const linearB_l = "𐀀𐀂𐀄𐀆𐀈𐀊𐀎𐀐𐀒𐀔𐀖𐀘𐀚𐀜𐀞�
 const linearB_r = "𐀁𐀃𐀅𐀇𐀉𐀋𐀍𐀏𐀑𐀓𐀕𐀗𐀙𐀛𐀝𐀟𐀡𐀣𐀥𐀩𐀫𐀭𐀯𐀱𐀳𐀵𐀷𐀹𐀽𐀿𐁁𐁃𐁅𐁇𐁉𐁋𐁍𐁑𐁓𐁕𐁗𐁙𐁛𐁝";
 const linearB = "𐀀𐀁𐀂𐀃𐀄𐀅𐀆𐀇𐀈𐀉𐀊𐀋𐀍𐀎𐀏𐀐𐀑𐀒𐀓𐀔𐀕𐀖𐀗𐀘𐀙𐀚𐀛𐀜𐀝𐀞𐀟𐀠𐀡𐀢𐀣𐀤𐀥𐀦𐀨𐀩𐀪𐀫𐀬𐀭𐀮𐀯𐀰𐀱𐀲𐀳𐀴𐀵𐀶𐀷𐀸𐀹𐀺𐀼𐀽𐀿𐁀𐁁𐁂𐁃𐁄𐁅𐁆𐁇𐁈𐁉𐁊𐁋𐁌𐁍𐁐𐁑𐁒𐁓𐁔𐁕𐁖𐁗𐁘𐁙𐁚𐁛𐁜𐁝";
 
-const han = .{
+const han: LRstrings = .{
     .l = "省說辰拾掠亮凉糧諒勵女旅礪驪黎曆轢憐撚煉秊聯蓮鍊劣烈說念殮獵囹嶺玲羚鈴靈例醴惡僚尿樂療遼暈劉柳溜留紐六陸崙輪慄率利履李泥痢裏里匿吝璘隣麟淋立粒炙什刺度糖洞輻降廓嗀﨏﨑﨓凞益神福精﨟﨡﨣逸﨧﨩飼鶴隷僧勉卑嘆塀層悔憎敏暑海漢爫碑祉祐祝禎突練繁者艹著視謹贈逸響恵舘",
     .r = "葉殺沈若略兩梁良量呂廬濾閭麗力歷年戀漣璉練輦連列咽裂廉捻簾令寧怜瑩聆零領禮隸了寮料燎蓼龍阮杻流琉硫類戮倫淪律栗隆吏易梨理罹裡離溺燐藺鱗林臨笠狀識茶切拓宅暴行見兀﨎塚晴﨔猪礼祥靖羽蘒諸﨤都﨨飯館郞侮免勤喝器墨屮慨懲既梅渚煮琢社祈祖禍穀節縉署臭艹褐謁賓辶難頻𤋮",
     .str = "省葉說殺辰沈拾若掠略亮兩凉梁糧良諒量勵呂女廬旅濾礪閭驪麗黎力曆歷轢年憐戀撚漣煉璉秊練聯輦蓮連鍊列劣咽烈裂說廉念捻殮簾獵令囹寧嶺怜玲瑩羚聆鈴零靈領例禮醴隸惡了僚寮尿料樂燎療蓼遼龍暈阮劉杻柳流溜琉留硫紐類六戮陸倫崙淪輪律慄栗率隆利吏履易李梨泥理痢罹裏裡里離匿溺吝燐璘藺隣鱗麟林淋臨立笠粒狀炙識什茶刺切度拓糖宅洞暴輻行降見廓兀嗀﨎﨏塚﨑晴﨓﨔凞猪益礼神祥福靖精羽﨟蘒﨡諸﨣﨤逸都﨧﨨﨩飯飼館鶴郞隷侮僧免勉勤卑喝嘆器塀墨層屮悔慨憎懲敏既暑梅海渚漢煮爫琢碑社祉祈祐祖祝禍禎穀突節練縉繁署者臭艹艹著褐視謁謹賓贈辶逸難響頻恵𤋮舘",
@@ -1151,22 +1215,17 @@ test "create set and match strings" {
     try buildAndTestRuneSet(han.str, allocator);
 }
 
-//     const allocator = std.testing.allocator;
-//     const linB = try RuneSet.createFromConstString(linearB, allocator);
-//     defer linB.deinit(allocator);
-//     const linB_union = try buildUnion(linearB_l, linearB_r, allocator);
-//     defer linB_union.deinit(allocator);
-//     const linB_r = try RuneSet.createFromConstString(linearB_r, allocator);
-//     defer linB_r.deinit(allocator);
-//     try expect(true);
-// }
-
 test "create set unions" {
     const allocator = std.testing.allocator;
     try buildAndTestUnion(alphabet, alfagreek, allocator);
     try buildAndTestUnion(math, deseret, allocator);
     try buildAndTestUnion(linearB_l, linearB_r, allocator);
     try buildAndTestUnion(han.l, han.r, allocator);
+}
+
+test "verify set difference" {
+    const allocator = std.testing.allocator;
+    try verifySetDifference(ascii, allocator);
 }
 
 test "ASCII createBodyFromString" {
