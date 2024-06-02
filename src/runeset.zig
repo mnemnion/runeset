@@ -730,7 +730,7 @@ pub const RuneSet = struct {
                                     // null check for T3 mask out
                                     if (NT4[NT4i] == 0) {
                                         var NT3m = toMask(NT3[NT3i]);
-                                        NT3m.remove(codeunit(e3));
+                                        NT3m.remove(codeunit(e4));
                                         NT3[NT3i] = NT3m.m;
                                     } // NT3[NT3i] checked after unionT3iter while loop
                                     NT4i += 1;
@@ -744,11 +744,13 @@ pub const RuneSet = struct {
                             }
                             if (NT3[NT3i] == 0) {
                                 var N3m = toMask(NT2[e2]);
-                                N3m.remove(codeunit(e2));
+                                N3m.remove(codeunit(e3));
                                 NT2[e2] = N3m.m;
                             } // NT2[e2] checked after unionT2iter while loop
                             // finished iterating T3 mask, subtract indices
-                            NT3i -= 1;
+                            if (NT3i > 0)
+                                // if it is zero, we won't have further matches
+                                NT3i -= 1;
                             RT3i -= 1;
                         } else if (eRT2m.isElem(e3)) {
                             RT3i -= 1;
@@ -1360,7 +1362,7 @@ test "verify set difference" {
     try differenceIsNone(ascii.str, allocator);
     try differenceIsNone(greek, allocator);
     try differenceIsNone(han.str, allocator);
-    // try differenceIsNone(deseret, allocator);
+    try differenceIsNone(deseret, allocator);
 }
 
 test "ASCII createBodyFromString" {
