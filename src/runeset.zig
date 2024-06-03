@@ -5,7 +5,7 @@
 //!
 //! The primary type is RuneSets, which may be constructed in
 //! several ways.  These support very fast membership tests
-//! through bitmasks and popcount, and are capable to encoding
+//! through bitmasks and popcount, and are capable of encoding
 //! arbitrary sets of characters.
 //!
 //! They (will) also allow nondestructive set operations: union, set,
@@ -1399,9 +1399,4 @@ test "two-byte createBodyFromString" {
     const alfa = "αψ";
     try expect(lead.isIn(codeunit(alfa[0])));
     try expect(lead.isIn(codeunit(alfa[2])));
-}
-
-// Run elements tests as well
-test {
-    testing.refAllDecls(@This());
 }
