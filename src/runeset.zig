@@ -245,12 +245,10 @@ pub const RuneSet = struct {
     /// Test if two RuneSets are equal.
     pub fn equalTo(self: *const RuneSet, other: RuneSet) bool {
         if (self.body.len != other.body.len) return false;
-        var match = true;
         for (self.body, other.body) |l, r| {
-            match = match and l == r;
-            if (!match) break;
+            if (l != r) return false;
         }
-        return match;
+        return true;
     }
 
     // Return a tuple counting number of one, two, three, and four
@@ -282,6 +280,8 @@ pub const RuneSet = struct {
         const a, const b, const c, const d = self.counts();
         return a + (2 * b) + (3 * c) + (4 * d);
     }
+
+    // TODO add RuneSet iterator and runeset.toString(buf)
 
     //| Set Operations
     //|
@@ -353,19 +353,19 @@ pub const RuneSet = struct {
             var R2off = R.t2end();
             // Reverse iterate lead mask elements of three and four bytes
             var nT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
-            while (nT2iter.next()) |e| {
+            while (nT2iter.next()) |e2| {
                 // We only set ownership for four-byte chars
-                const set_owned = if (e >= THREE_MAX) true else false;
-                if (both_T2.isElem(e)) {
+                const set_owned = if (e2 >= THREE_MAX) true else false;
+                if (both_T2.isElem(e2)) {
                     // Reverse-iterate the mask and test membership
                     const L_tE = toMask(Lbod[L2off] & ~Rbod[R2off]);
                     const R_tE = toMask(Rbod[R2off] & ~Lbod[R2off]);
                     L2off -= 1;
                     R2off -= 1;
                     const both_tE = toMask(Lbod[L2off] & Rbod[R2off]);
-                    var elemIter = toMask(NT2[e]).iterElemBack();
-                    while (elemIter.next()) |ee| {
-                        if (both_tE.isElem(ee)) {
+                    var elemIter = toMask(NT2[e2]).iterElemBack();
+                    while (elemIter.next()) |e3| {
+                        if (both_tE.isElem(e3)) {
                             NT3[N3i] = Lbod[L3i] | Rbod[R3i];
                             L3i += 1;
                             R3i += 1;
@@ -374,14 +374,14 @@ pub const RuneSet = struct {
                                 RT3_own.set(N3i);
                             }
                             N3i += 1;
-                        } else if (L_tE.isElem(ee)) {
+                        } else if (L_tE.isElem(e3)) {
                             NT3[N3i] = Lbod[L3i];
                             L3i += 1;
                             if (set_owned) {
                                 LT3_own.set(N3i);
                             }
                             N3i += 1;
-                        } else if (R_tE.isElem(ee)) {
+                        } else if (R_tE.isElem(e3)) {
                             NT3[N3i] = Rbod[R3i];
                             R3i += 1;
                             if (set_owned) {
@@ -390,9 +390,9 @@ pub const RuneSet = struct {
                             N3i += 1;
                         } else unreachable;
                     }
-                } else if (L_T2.isElem(e)) {
+                } else if (L_T2.isElem(e2)) {
                     L2off -= 1;
-                    const pc = @popCount(NT2[e]);
+                    const pc = @popCount(NT2[e2]);
                     assert(pc > 0);
                     for (0..pc) |_| {
                         NT3[N3i] = Lbod[L3i];
@@ -402,9 +402,9 @@ pub const RuneSet = struct {
                         N3i += 1;
                         L3i += 1;
                     }
-                } else if (R_T2.isElem(e)) {
+                } else if (R_T2.isElem(e2)) {
                     R2off -= 1;
-                    const pc = @popCount(NT2[e]);
+                    const pc = @popCount(NT2[e2]);
                     assert(pc > 0);
                     for (0..pc) |_| {
                         NT3[N3i] = Rbod[L3i];
