@@ -243,7 +243,7 @@ pub const RuneSet = struct {
     }
 
     /// Test if two RuneSets are equal.
-    pub fn equalTo(self: *const RuneSet, other: *const RuneSet) bool {
+    pub fn equalTo(self: *const RuneSet, other: RuneSet) bool {
         if (self.body.len != other.body.len) return false;
         var match = true;
         for (self.body, other.body) |l, r| {
@@ -1170,6 +1170,7 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 
+// TODO deprecated: we have RuneSet.createFromConstString
 fn makeMutable(s: []const u8, a: Allocator) ![]u8 {
     const mut = try a.alloc(u8, s.len);
     @memcpy(mut, s);
@@ -1180,6 +1181,8 @@ fn makeMutable(s: []const u8, a: Allocator) ![]u8 {
 /// test membership of every character in the set
 ///
 /// "known good" means the string must be valid utf-8.
+///
+/// TODO deprecated: these code paths are tested through RuneSet
 fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
     const str = try makeMutable(s, alloc);
     defer alloc.free(str);
@@ -1204,6 +1207,7 @@ fn buildAndTestString(s: []const u8, alloc: Allocator) !void {
 }
 
 // test that no part of `str` matches in `set`.
+// TODO moved to test-runeset.zig
 fn testMatchNone(set: RuneSet, str: []const u8) !void {
     var idx: usize = 0;
     while (idx < str.len) {
@@ -1215,6 +1219,7 @@ fn testMatchNone(set: RuneSet, str: []const u8) !void {
 }
 
 /// All runes in str must be unique for this test to pass.
+// TODO moved to test-runeset.zig
 fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
     const set = try RuneSet.createFromConstString(str, alloc);
     defer set.deinit(alloc);
@@ -1225,6 +1230,7 @@ fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
     } else try expect(false);
 }
 
+// TODO moved to test-runeset.zig
 fn buildAndTestUnion(a: []const u8, b: []const u8, alloc: Allocator) !void {
     const setA = try RuneSet.createFromConstString(a, alloc);
     defer setA.deinit(alloc);
@@ -1242,18 +1248,11 @@ fn buildAndTestUnion(a: []const u8, b: []const u8, alloc: Allocator) !void {
     } else try expect(false);
 }
 
-fn buildUnion(a: []const u8, b: []const u8, alloc: Allocator) !RuneSet {
-    const setA = try RuneSet.createFromConstString(a, alloc);
-    defer setA.deinit(alloc);
-    const setB = try RuneSet.createFromConstString(b, alloc);
-    defer setB.deinit(alloc);
-    return try setA.setUnion(setB, alloc);
-}
-
 /// verify correct set difference.
 ///
 /// LRstr must be well-formed: str must have all of l and r,
 /// and l and r must not contain any common runes.
+// TODO moved to test-runeset.zig
 fn verifySetDifference(LR: LRstrings, alloc: Allocator) !void {
     const setAll = try RuneSet.createFromConstString(LR.str, alloc);
     defer setAll.deinit(alloc);
