@@ -61,15 +61,15 @@ pub const RuneSet = struct {
     body: []const u64,
 
     // some names for meaningful operations
-    inline fn leadMask(self: *const RuneSet) Mask {
+    inline fn leadMask(self: RuneSet) Mask {
         return toMask(self.body[LEAD]);
     }
 
-    inline fn t2Len(self: *const RuneSet) usize {
+    inline fn t2Len(self: RuneSet) usize {
         return @popCount(self.body[LEAD]);
     }
 
-    inline fn t2start(_: *const RuneSet) usize {
+    inline fn t2start(_: RuneSet) usize {
         return 4;
     }
 
@@ -77,33 +77,33 @@ pub const RuneSet = struct {
     //| sort of runes implied by asking for the region in
     //| question
 
-    inline fn t2end(self: *const RuneSet) usize {
+    inline fn t2end(self: RuneSet) usize {
         return self.t2start() + self.t2Len();
     }
 
     // Start of region of T2 containing 3 byte b codeunits
-    inline fn t2_3b_start(self: *const RuneSet) usize {
+    inline fn t2_3b_start(self: RuneSet) usize {
         return 4 + @popCount(self.body[LEAD] & MASK_IN_TWO);
     }
 
     // Start of region of T2 containing 4 byte b codeunits
-    inline fn t2_4b_start(self: *const RuneSet) usize {
+    inline fn t2_4b_start(self: RuneSet) usize {
         return 4 + @popCount(self.body[LEAD] & MASK_OUT_FOUR);
     }
 
     // Start of region of T3 containing 3 byte c codeunits
-    inline fn t3_3c_start(self: *const RuneSet) usize {
+    inline fn t3_3c_start(self: RuneSet) usize {
         const c4b_off = popCountSlice(self.body[self.t2_4b_start()..self.t2end()]);
         return self.t3start() + c4b_off;
     }
 
     // Start of T3 region (also t3_3d_start)
-    inline fn t3start(self: *const RuneSet) usize {
+    inline fn t3start(self: RuneSet) usize {
         return self.t2end();
     }
 
     // End of T3 region
-    inline fn t3end(self: *const RuneSet) usize {
+    inline fn t3end(self: RuneSet) usize {
         if (self.body[T4_OFF] == 0)
             return self.body.len
         else
@@ -111,36 +111,36 @@ pub const RuneSet = struct {
     }
 
     // Start of T4 region, *or* zero for no T4
-    inline fn t4offset(self: *const RuneSet) usize {
+    inline fn t4offset(self: RuneSet) usize {
         return self.body[T4_OFF];
     }
 
-    inline fn t2slice(self: *const RuneSet) ?[]u64 {
+    inline fn t2slice(self: RuneSet) ?[]u64 {
         if (self.body[LEAD] == 0)
             return null
         else
             return self.body[4..self.t2end()];
     }
 
-    inline fn t3slice(self: *const RuneSet) ?[]const u64 {
+    inline fn t3slice(self: RuneSet) ?[]const u64 {
         if (self.noThreeBytes())
             return null
         else
             return self.body[self.t3start()..self.t3end()];
     }
 
-    inline fn t4slice(self: *const RuneSet) ?[]const u64 {
+    inline fn t4slice(self: RuneSet) ?[]const u64 {
         if (self.noFourBytes())
             return null
         else
             return self.body[self.t4offset()..];
     }
 
-    inline fn maskAt(self: *const RuneSet, off: usize) Mask {
+    inline fn maskAt(self: RuneSet, off: usize) Mask {
         return toMask(self.body[off]);
     }
 
-    fn debugMaskAt(self: *const RuneSet, off: usize) void {
+    fn debugMaskAt(self: RuneSet, off: usize) void {
         std.debug.print("0x{x:0>16}\n", .{self.body[off]});
     }
 
@@ -150,15 +150,15 @@ pub const RuneSet = struct {
 
     // This counts any third byte, including one in
     // a four-byte char
-    inline fn noThreeBytes(self: *const RuneSet) bool {
+    inline fn noThreeBytes(self: RuneSet) bool {
         return self.body[LEAD] & MASK_OUT_TWO == 0;
     }
 
-    inline fn noFourBytes(self: *const RuneSet) bool {
+    inline fn noFourBytes(self: RuneSet) bool {
         return self.body[T4_OFF] == 0;
     }
 
-    fn spreadT2(self: *const RuneSet, T2: []u64) void {
+    fn spreadT2(self: RuneSet, T2: []u64) void {
         var iter = self.maskAt(LEAD).iterElements();
         const body = self.body;
         var off: usize = 4;
@@ -168,7 +168,7 @@ pub const RuneSet = struct {
         }
     }
 
-    pub fn deinit(self: *const RuneSet, alloc: Allocator) void {
+    pub fn deinit(self: RuneSet, alloc: Allocator) void {
         alloc.free(self.body);
     }
 
@@ -195,7 +195,7 @@ pub const RuneSet = struct {
     ///
     /// The normal return value is the number of bytes matched.  Zero
     /// means that the rune beginning the slice was not a match.
-    pub fn matchOne(self: *const RuneSet, slice: []const u8) ?usize {
+    pub fn matchOne(self: RuneSet, slice: []const u8) ?usize {
         return matchOneDirectly(self.body, slice);
     }
 
@@ -203,7 +203,7 @@ pub const RuneSet = struct {
     ///
     /// Invalid UTF-8 is allowed, and will return 0.  A match will
     /// return the number of bytes matched.
-    pub fn matchOneAllowInvalid(self: *const RuneSet, slice: []const u8) usize {
+    pub fn matchOneAllowInvalid(self: RuneSet, slice: []const u8) usize {
         return matchOneDirectly(self.body, slice) orelse 0;
     }
 
@@ -211,7 +211,7 @@ pub const RuneSet = struct {
     /// the slice.  Returns the number of bytes matched.
     ///
     /// Safe to use on invalid UTF-8, returning null if any is found.
-    pub fn matchMany(self: *const RuneSet, slice: []const u8) ?usize {
+    pub fn matchMany(self: RuneSet, slice: []const u8) ?usize {
         var idx: usize = 0;
         while (idx < slice.len) {
             const nBytes = self.matchOne(slice[idx..]);
@@ -231,7 +231,7 @@ pub const RuneSet = struct {
     ///
     /// Safe to use on invalid UTF-8, including truncated multi-byte
     /// runes at the end of the slice.
-    pub fn matchManyAllowInvalid(self: *RuneSet, slice: []const u8) usize {
+    pub fn matchManyAllowInvalid(self: RuneSet, slice: []const u8) usize {
         var idx: usize = 0;
         while (idx < slice.len) {
             const nB = self.matchOne(slice[idx..]) orelse 0;
@@ -243,7 +243,7 @@ pub const RuneSet = struct {
     }
 
     /// Test if two RuneSets are equal.
-    pub fn equalTo(self: *const RuneSet, other: RuneSet) bool {
+    pub fn equalTo(self: RuneSet, other: RuneSet) bool {
         if (self.body.len != other.body.len) return false;
         for (self.body, other.body) |l, r| {
             if (l != r) return false;
@@ -253,7 +253,7 @@ pub const RuneSet = struct {
 
     // Return a tuple counting number of one, two, three, and four
     // byte codepoints
-    fn counts(self: *const RuneSet) struct { usize, usize, usize, usize } {
+    fn counts(self: RuneSet) struct { usize, usize, usize, usize } {
         var c: [4]u64 = .{0} ** 4;
         c[0] = popCountSlice(self.body[LOW..LEAD]);
         if (self.body[LEAD] == 0) return .{ c[0], c[1], c[2], c[3] };
@@ -267,7 +267,7 @@ pub const RuneSet = struct {
     }
 
     /// Return a count of runes (Unicode codepoints) in set.
-    pub fn runeCount(self: *const RuneSet) usize {
+    pub fn runeCount(self: RuneSet) usize {
         const a, const b, const c, const d = self.counts();
         return a + b + c + d;
     }
@@ -289,7 +289,7 @@ pub const RuneSet = struct {
 
     /// Union of two RuneSets.
     ///
-    pub fn setUnion(L: *const RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
+    pub fn setUnion(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
         var header: [4]u64 = .{0} ** 4;
         const Lbod = L.body;
         const Rbod = R.body;
@@ -500,7 +500,7 @@ pub const RuneSet = struct {
 
     /// Return difference of receiver and argument as new set.
     /// Calling context owns the memory.
-    pub fn setDifference(L: *const RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
+    pub fn setDifference(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
         var header: [4]u64 = undefined;
         const Lbod = L.body;
         const Rbod = R.body;
@@ -788,6 +788,12 @@ pub const RuneSet = struct {
         @memcpy(Nbod[T2end..T3end], T3c);
         @memcpy(Nbod[T3end..setLen], T4);
         return RuneSet{ .body = Nbod };
+    }
+
+    pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) void {
+        _ = L;
+        _ = R;
+        _ = allocator;
     }
 };
 
