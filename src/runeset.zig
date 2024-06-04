@@ -373,22 +373,20 @@ pub const RuneSet = struct {
                                 LT3_own.set(N3i);
                                 RT3_own.set(N3i);
                             }
-                            N3i += 1;
                         } else if (L_tE.isElem(e3)) {
                             NT3[N3i] = Lbod[L3i];
                             L3i += 1;
                             if (set_owned) {
                                 LT3_own.set(N3i);
                             }
-                            N3i += 1;
                         } else if (R_tE.isElem(e3)) {
                             NT3[N3i] = Rbod[R3i];
                             R3i += 1;
                             if (set_owned) {
                                 RT3_own.set(N3i);
                             }
-                            N3i += 1;
                         } else unreachable;
+                        N3i += 1;
                     }
                 } else if (L_T2.isElem(e2)) {
                     L2off -= 1;
@@ -500,7 +498,8 @@ pub const RuneSet = struct {
         return RuneSet{ .body = Nbod };
     }
 
-    /// Return calling set absent members of the first argument.
+    /// Return difference of receiver and argument as new set.
+    /// Calling context owns the memory.
     pub fn setDifference(L: *const RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
         var header: [4]u64 = undefined;
         const Lbod = L.body;
@@ -564,11 +563,11 @@ pub const RuneSet = struct {
             var RT3i = R.t3start(); // We know there are three-byte seqs in R
             // c-byte region of NT2 is all from L2, but RT2 offset needs tracking
             var RT2i = R.t3start() - 1;
-            // We go *back* through the C region of NT2, and *forward*
+            // We go *back* through the c-byte region of NT2, and *forward*
             // through both T3s. To track the latter, we iterate NT2 using
             // the union of both LEADs.
-            var cT2iter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
-            while (cT2iter.next()) |e2| {
+            var unionLeadIter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
+            while (unionLeadIter.next()) |e2| {
                 if (e2 >= THREE_MAX) {
                     // d byte; Fast-forward all T3 for each side
                     if (LT2m.isElem(e2)) {
@@ -677,7 +676,7 @@ pub const RuneSet = struct {
         @memcpy(NT4, LT4);
         if (!R.noFourBytes()) {
             // Backward iterate T2, d region only
-            var cT2iter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
+            var unionLeadIter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
             // Track ownership of T2 bits on each side:
             const LT2m = toMask(Lbod[LEAD]);
             const RT2m = toMask(Rbod[LEAD]);
@@ -689,7 +688,7 @@ pub const RuneSet = struct {
             // track T4 progress
             var NT4i: usize = 0;
             var RT4i = Rbod[T4_OFF];
-            while (cT2iter.next()) |e2| {
+            while (unionLeadIter.next()) |e2| {
                 if (e2 < THREE_MAX)
                     break;
                 // in d region of T2
@@ -771,7 +770,6 @@ pub const RuneSet = struct {
         } else {
             assert(R.t4slice() == null);
         }
-
         // assemble
         header[LEAD] = LLeadMask.m;
         const T2c = compactSlice(&NT2);
