@@ -43,12 +43,28 @@ fn testMatchNone(set: RuneSet, str: []const u8) !void {
         try expectEqual(0, set.matchOne(slice));
         idx += nB;
     }
+    // second pass to assure invalid follow bytes are handled safely
+    while (idx < str.len) {
+        const slice = str[idx..];
+        const match = set.matchOne(slice);
+        if (match) |m| {
+            try expectEqual(0, m);
+        }
+        idx += 1;
+    }
 }
 
-/// Confirms that a RuneSet built from `str` will match every rune in `str`.
+/// Build a RuneSet from `str`, verifying the following properties:
+///
+/// - The set matches all codepoints in str
+/// - The count of codeunits in str matches that in set
+///     - NOTE: codeunits in str must be unique!
+/// - The union of set with itself is identical to original set
+/// - The difference of set with itself is empty
+/// - TODO the intersection of set with itself is identical
 ///
 /// Invalid UTF-8 is safe, but the test will fail.
-fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
+fn verifySetProperties(str: []const u8, alloc: Allocator) !void {
     const set = try RuneSet.createFromConstString(str, alloc);
     defer set.deinit(alloc);
     const matched = set.matchMany(str);
@@ -56,6 +72,16 @@ fn buildAndTestRuneSet(str: []const u8, alloc: Allocator) !void {
         try expectEqual(str.len, m);
         try expectEqual(str.len, set.codeunitCount());
     } else try expect(false);
+    const setU = try set.setUnion(set, alloc);
+    defer setU.deinit(alloc);
+    try expect(setU.equalTo(set));
+    const setD = try set.setDifference(set, alloc);
+    defer setD.deinit(alloc);
+    try expectEqual(0, setD.codeunitCount());
+    // const setI = try set.setIntersection(set, alloc);
+    // defer setI.deinit(alloc);
+    // try expect(setI.equalTo(set));
+    // try expect(setU.equalTo(setI));
 }
 
 /// Validate union properties of an LRstring set:
@@ -126,9 +152,15 @@ fn verifySetDifference(LR: LRstrings, alloc: Allocator) !void {
 
 //| Test Suite
 
-test "is this thing on?" {
-    std.debug.print("\nthis thing is, in fact, on\n", .{});
-    try expect(true);
+test "set properties" {
+    const allocator = std.testing.allocator;
+    try verifySetProperties(ascii.str, allocator);
+    try verifySetProperties(greek.str, allocator);
+    try verifySetProperties(math.str, allocator);
+    try verifySetProperties(linear_B.str, allocator);
+    try verifySetProperties(han_sample.str, allocator);
+    try verifySetProperties(deseret.str, allocator);
+    try verifySetProperties(two_byte_feather.str, allocator);
 }
 
 test "set union tests" {
