@@ -8,8 +8,10 @@
 //! through bitmasks and popcount, and are capable of encoding
 //! arbitrary sets of characters.
 //!
-//! They (will) also allow nondestructive set operations: union, set,
-//! and difference.  Probably subset, equality, and iteration.
+//! Additionally, these may be combined using the basic set operations:
+//! union, difference, and intersection, as well as tested for equality.
+//!
+//! TODO iteration of codeunits, serializing to string, and subset operation.
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
@@ -26,6 +28,8 @@ pub const CodeUnit = elements.CodeUnit;
 /// codeunit(:u8) creates a CodeUnit
 pub const codeunit = elements.codeunit;
 
+/// Error indicating that a string for construction a RuneSet contains
+/// invalid Unicode.
 const InvalidUnicode = error.InvalidUnicode;
 // Meaningful names for the T1 slots
 const LOW = 0;
@@ -54,7 +58,7 @@ const MASK_IN_THREE: u64 = MASK_OUT_TWO | MASK_OUT_FOUR;
 ///
 /// - RuneSet.createFromMutableString
 /// - RuneSet.createFromConstString
-/// - ...
+/// - TODO create from range or ranges (?)
 ///
 /// Free with `set.deinit(allocator)`.
 pub const RuneSet = struct {
@@ -65,7 +69,7 @@ pub const RuneSet = struct {
         return toMask(self.body[LEAD]);
     }
 
-    inline fn t2Len(self: RuneSet) usize {
+    inline fn t2len(self: RuneSet) usize {
         return @popCount(self.body[LEAD]);
     }
 
@@ -78,7 +82,7 @@ pub const RuneSet = struct {
     //| question
 
     inline fn t2end(self: RuneSet) usize {
-        return self.t2start() + self.t2Len();
+        return self.t2start() + self.t2len();
     }
 
     // Start of region of T2 containing 3 byte b codeunits
@@ -168,6 +172,7 @@ pub const RuneSet = struct {
         }
     }
 
+    /// Free the memory allocated for a RuneSet
     pub fn deinit(self: RuneSet, alloc: Allocator) void {
         alloc.free(self.body);
     }
@@ -189,18 +194,15 @@ pub const RuneSet = struct {
     }
 
     /// Match one rune at the beginning of the slice.
-    ///
     /// This is safe to use with invalid UTF-8, and will return null if
     /// such is encountered.
-    ///
-    /// The normal return value is the number of bytes matched.  Zero
-    /// means that the rune beginning the slice was not a match.
+    /// The normal return value is the number of bytes matched.
+    /// Zero means that the rune beginning the slice was not a match.
     pub fn matchOne(self: RuneSet, slice: []const u8) ?usize {
         return matchOneDirectly(self.body, slice);
     }
 
     /// Match one rune at the beginning of the slice.
-    ///
     /// Invalid UTF-8 is allowed, and will return 0.  A match will
     /// return the number of bytes matched.
     pub fn matchOneAllowInvalid(self: RuneSet, slice: []const u8) usize {
@@ -209,7 +211,6 @@ pub const RuneSet = struct {
 
     /// Match as many runes as possible starting from the beginning of
     /// the slice.  Returns the number of bytes matched.
-    ///
     /// Safe to use on invalid UTF-8, returning null if any is found.
     pub fn matchMany(self: RuneSet, slice: []const u8) ?usize {
         var idx: usize = 0;
@@ -228,7 +229,6 @@ pub const RuneSet = struct {
 
     /// Match as many runes as possible starting from the beginning of
     /// the slice.  Invalid UTF-8 is treated as a failure to match.
-    ///
     /// Safe to use on invalid UTF-8, including truncated multi-byte
     /// runes at the end of the slice.
     pub fn matchManyAllowInvalid(self: RuneSet, slice: []const u8) usize {
@@ -790,10 +790,49 @@ pub const RuneSet = struct {
         return RuneSet{ .body = Nbod };
     }
 
-    pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) void {
-        _ = L;
-        _ = R;
-        _ = allocator;
+    /// Return intersection of receiver with first argument.
+    /// Calling context owns memory.
+    pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
+        // Similar to setDifference.  A bit simpler because we can
+        // remove bits as we find them (but still have to go back
+        // and clear more bits when we do each tier)
+        const Lbod = L.body;
+        const Rbod = R.body;
+        var header: [4]u64 = undefined;
+        header[LOW] = Lbod[LOW] & Rbod[LOW];
+        header[HI] = Lbod[HI] & Rbod[HI];
+        header[LEAD] = Lbod[LEAD] & Rbod[LEAD];
+        header[T4_OFF] = 0;
+        if (header[LEAD] == 0) {
+            const Nbod = allocator.alloc(u64, 4);
+            @memcpy(Nbod, &header);
+            return RuneSet{ .body = Nbod };
+        }
+        const NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        const LLeadMask = L.maskAt(LEAD);
+        const RLeadMask = R.maskAt(LEAD);
+        // Must be reassigned to NT2[LEAD] before returning
+        var NLeadMask = toMask(NT2[LEAD]);
+        const T2iter = LLeadMask.setunion(RLeadMask).iterElements();
+        const LT2i = 4;
+        const RT2i = 4;
+        while (T2iter.next()) |e2| {
+            if (NLeadMask.isElem(e2)) {
+                NT2[e2] = Lbod[LT2i] & Rbod[RT2i];
+                if (NT2[e2] == 0) {
+                    NLeadMask.remove(codeunit(e2));
+                }
+                LT2i += 1;
+                RT2i += 1;
+            } else if (LLeadMask.isElem(e2)) {
+                LT2i += 1;
+            } else if (RLeadMask.isElem(e2)) {
+                RT2i += 1;
+            } else unreachable;
+        }
+
+        // usual placeholder, would crash
+        return RuneSet{ .body = header };
     }
 };
 
