@@ -124,18 +124,18 @@ pub const Mask = struct {
     }
 
     /// Test if a CodeUnit's low bytes are present in mask
-    pub inline fn isIn(self: *const Mask, cu: CodeUnit) bool {
+    pub inline fn isIn(self: Mask, cu: CodeUnit) bool {
         return self.m | cu.inMask() == self.m;
     }
 
     /// Test if a u6 element is present in mask
-    pub inline fn isElem(self: *const Mask, u: u6) bool {
+    pub inline fn isElem(self: Mask, u: u6) bool {
         return self.m | @as(u64, 1) << u == self.m;
     }
 
     /// Return number of bytes lower than cu.body in mask,
     /// if cu inhabits the mask.  Otherwise return null.
-    pub inline fn lowerThan(self: *const Mask, cu: CodeUnit) ?u64 {
+    pub inline fn lowerThan(self: Mask, cu: CodeUnit) ?u64 {
         if (self.isIn(cu)) {
             const m = cu.hiMask();
             return @popCount(self.m & m);
@@ -146,7 +146,7 @@ pub const Mask = struct {
 
     /// Return number of bytes higher than cu.body in mask,
     /// if cu inhabits the mask.  Otherwise return null.
-    pub inline fn higherThan(self: *const Mask, cu: CodeUnit) ?u64 {
+    pub inline fn higherThan(self: Mask, cu: CodeUnit) ?u64 {
         if (self.isIn(cu)) {
             const m = cu.lowMask();
             return @popCount(self.m & m);
@@ -157,19 +157,19 @@ pub const Mask = struct {
 
     /// Check u6 element for membership. Used to iterate, and
     /// in set operations on RuneSets.
-    pub inline fn bitSet(self: *const Mask, member: u6) bool {
+    pub inline fn bitSet(self: Mask, member: u6) bool {
         return self.m | @as(u64, 1) << member == self.m;
     }
 
-    pub fn iterElements(self: *const Mask) MaskElements {
-        return MaskElements{ .mask = self.* };
+    pub fn iterElements(self: Mask) MaskElements {
+        return MaskElements{ .mask = self };
     }
 
-    pub fn iterElemBack(self: *const Mask) MaskElemBack {
-        return MaskElemBack{ .mask = self.* };
+    pub fn iterElemBack(self: Mask) MaskElemBack {
+        return MaskElemBack{ .mask = self };
     }
 
-    pub fn iterCodeUnits(self: *const Mask, kind: RuneKind) MaskCodeUnits {
+    pub fn iterCodeUnits(self: Mask, kind: RuneKind) MaskCodeUnits {
         return MaskCodeUnits{ .mIter = self.iterElements(), .kind = kind };
     }
 
@@ -178,22 +178,22 @@ pub const Mask = struct {
     /// Most popcounts are done on words we don't need to have
     /// as Masks, this is a convenience for the LEAD word in
     /// particular, which will already be in Mask form.
-    pub inline fn count(self: *const Mask) usize {
+    pub inline fn count(self: Mask) usize {
         return @popCount(self.m);
     }
 
     /// Return union of two Masks as a new Mask
-    pub inline fn setunion(self: *const Mask, other: *const Mask) Mask {
+    pub inline fn setunion(self: Mask, other: Mask) Mask {
         return Mask{ .m = self.m | other.m };
     }
 
     /// Return intersection of two Masks as a new Mask
-    pub inline fn intersection(self: *const Mask, other: *const Mask) Mask {
+    pub inline fn intersection(self: Mask, other: Mask) Mask {
         return Mask{ .m = self.m & other.m };
     }
 
     /// Return difference of two Masks as a new Mask
-    pub inline fn difference(self: *const Mask, other: *const Mask) Mask {
+    pub inline fn difference(self: Mask, other: Mask) Mask {
         return Mask{ .m = self.m & ~other.m };
     }
 };
