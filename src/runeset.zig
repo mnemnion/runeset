@@ -31,6 +31,7 @@ pub const codeunit = elements.codeunit;
 /// Error indicating that a string for construction a RuneSet contains
 /// invalid Unicode.
 const InvalidUnicode = error.InvalidUnicode;
+
 // Meaningful names for the T1 slots
 const LOW = 0;
 const HI = 1;
@@ -47,7 +48,7 @@ const FOUR_MAX = 56; // maximum for four-byte lead
 // Masks for info about set[LEAD]
 const MASK_OUT_TWO: u64 = codeunit(TWO_MAX - 1).lowMask();
 const MASK_IN_TWO: u64 = codeunit(TWO_MAX).hiMask();
-// const MASK_IN_FOUR: u64 = codeunit(47).lowMask();
+const MASK_IN_FOUR: u64 = codeunit(47).lowMask();
 const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 // 32..56
 const MASK_IN_THREE: u64 = MASK_OUT_TWO | MASK_OUT_FOUR;
@@ -283,9 +284,31 @@ pub const RuneSet = struct {
 
     // TODO add RuneSet iterator and runeset.toString(buf)
 
-    //| Set Operations
+    //| # Set Operations
     //|
-    //| The receiver is L, the comparator is R, and the new set is N
+    //| Provides union, difference, and intersection operations.
+    //|
+    //| All such operations are non-destructive, allocating a new set.
+    //|
+    //| ## Vocabulary
+    //|
+    //| The variables used here are terse, but follow a fairly consistent syntax.
+    //|
+    //| The receiver is L, the comparator is R, and the new set is N.
+    //|
+    //| We refer to the tiers as header (T1), T2, T3, and T4.  These contain
+    //| bitmasks for any byte of that order in a codepoint's sequence.
+    //|
+    //| We call the codepoints a (not used), b, c, and d, depending on how many
+    //| bytes they have in total.  Thus, a d byte of the T2 tier is the second byte
+    //| of a four-byte codeunit.
+    //|
+    //| Abbreviations: i for index, m for mask, e for element, len for length,
+    //| iter for an iterator. c at the end of a tier means that tier is compacted.
+    //|
+    //| Examples: NT3i is an index into the T3 tier of N, our new set.
+    //| e2 is an element of T2.  NT3_d_len is the length of the d region of
+    //| NT3.  eRT3m is a mask of an element of R's T3.
 
     /// Union of two RuneSets.
     ///
@@ -776,17 +799,17 @@ pub const RuneSet = struct {
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
         const T3end = T2end + T3c.len;
-        const T4 = compactSlice(NT4);
-        if (T4.len != 0)
+        const T4c = compactSlice(NT4);
+        if (T4c.len != 0)
             header[T4_OFF] = T3end
         else
             header[T4_OFF] = 0;
-        const setLen = T3end + T4.len;
+        const setLen = T3end + T4c.len;
         const Nbod = try allocator.alloc(u64, setLen);
         @memcpy(Nbod[0..4], &header);
         @memcpy(Nbod[4..T2end], T2c);
         @memcpy(Nbod[T2end..T3end], T3c);
-        @memcpy(Nbod[T3end..setLen], T4);
+        @memcpy(Nbod[T3end..setLen], T4c);
         return RuneSet{ .body = Nbod };
     }
 
@@ -808,6 +831,7 @@ pub const RuneSet = struct {
             @memcpy(Nbod, &header);
             return RuneSet{ .body = Nbod };
         }
+        // No spreading L2 into NT2 this time, it would just create extra work
         const NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         // Must be reassigned to header[LEAD] before returning
         var NLeadMask = toMask(header[LEAD]);
@@ -831,8 +855,8 @@ pub const RuneSet = struct {
                     RT2i += 1;
                 } else unreachable;
             }
-        }
-        if (L.noThreeBytes() or R.noThreeBytes()) {
+        } // we can check LEAD to see if there are surviving c bytes
+        if (NLeadMask.m & MASK_OUT_TWO == 0) {
             header[LEAD] = NLeadMask.m;
             const T2c = compactSlice(&NT2);
             const Nbod = try allocator.alloc(u64, 4 + T2c.len);
@@ -845,7 +869,7 @@ pub const RuneSet = struct {
         @memset(NT3, 0); // TODO again, shouldn't don't need this
         defer allocator.free(NT3);
         {
-            // We need to iterate back through both T2s to find surviving T3s
+            // We iterate back through both T2s to find surviving T3s
             var unionT2iter = toMask((Rbod[LEAD] & MASK_OUT_TWO) | (Lbod[LEAD] & MASK_OUT_TWO)).iterElemBack();
             var RT2i = R.t2end() - 1;
             var LT2i = L.t2end() - 1;
@@ -854,27 +878,27 @@ pub const RuneSet = struct {
             var NT3i: usize = 0;
             while (unionT2iter.next()) |e2| {
                 if (NT2[e2] != 0) {
-                    const LT2m = toMask(Lbod[LT2i]);
-                    const RT2m = toMask(Rbod[RT2i]);
-                    var NT2m = toMask(NT2[e2]);
-                    const unionT3Iter = LT2m.setunion(RT2m).iterElemBack();
+                    const eLT2m = toMask(Lbod[LT2i]);
+                    const eRT2m = toMask(Rbod[RT2i]);
+                    var eNT2m = toMask(NT2[e2]);
+                    const unionT3Iter = eLT2m.setunion(eRT2m).iterElemBack();
                     while (unionT3Iter.next()) |e3| {
-                        if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
+                        if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
                             NT3[NT3i] = Rbod[RT3i] & Lbod[LT3i];
                             RT3i += 1;
                             LT3i += 1;
                             if (NT3[NT3i] == 0) {
-                                NT2m.remove(codeunit(e3));
+                                eNT2m.remove(codeunit(e3));
                             }
-                        } else if (LT2m.isElem(e3)) {
+                        } else if (eLT2m.isElem(e3)) {
                             LT3i += 1;
                         } else {
-                            assert(RT2m.isElem(e3));
+                            assert(eRT2m.isElem(e3));
                             RT3i += 1;
                         }
                         NT3i += 1;
                     }
-                    NT2[e2] = NT2m.m;
+                    NT2[e2] = eNT2m.m;
                     if (NT2[e2] == 0)
                         NLeadMask.remove(e2);
                 }
@@ -889,7 +913,7 @@ pub const RuneSet = struct {
             assert(LT2i == 3);
             assert(RT2i == 3);
         }
-        if (L.noFourBytes() or R.noFourBytes()) {
+        if (NLeadMask.m & MASK_IN_FOUR == 0) {
             header[LEAD] = LLeadMask.m;
             const T2c = compactSlice(&NT2);
             const T2end = 4 + T2c.len;
@@ -902,8 +926,115 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // Tier 4
-        // usual placeholder, would crash
-        return RuneSet{ .body = header };
+        // NT4 is, at most, as many words as the d block of NT3
+        const NT3_d_len = popCountSlice(NT2[THREE_MAX..]);
+        const NT4len = popCountSlice(NT3[0..NT3_d_len]);
+        const NT4 = try allocator.alloc(u64, NT4len);
+        defer allocator.free(NT4);
+        // TODO defensive:
+        @memset(NT4, 0);
+        // We follow the now familiar strategy of iterating across
+        // unions of the set masks, and following through on the
+        // intersections.
+        { // In which we track Everything:
+            // backward through T2s
+            var RT2i = R.t2end() - 1;
+            var LT2i = L.t2end() - 1;
+            // backward through d bytes of T3
+            var NT3i = NT3_d_len - 1;
+            var LT3i = L.t3_3c_start() - 1;
+            var RT3i = R.t3_3c_start() - 1;
+            // forward through T4
+            var NT4i: usize = 0;
+            var LT4i = L.t4offset();
+            var RT4i = R.t4offset();
+            assert(NT4i != 0);
+            assert(RT4i != 0);
+            var unionT2iter = blk: {
+                const LT2d = Lbod[LEAD] & MASK_IN_FOUR;
+                const RT2d = Rbod[LEAD] & MASK_IN_FOUR;
+                break :blk toMask(LT2d | RT2d).iterElemBack();
+            };
+            while (unionT2iter.next()) |e2| {
+                if (NT2[e2] != 0) {
+                    var eNT2m = toMask(NT2[e2]);
+                    const eLT2m = toMask(Lbod[LT2i]);
+                    const eRT2m = toMask(Rbod[RT2i]);
+                    var unionT3iter = eLT2m.setunion(eRT2m).iterElemBack();
+                    tier3: while (unionT3iter.next()) |e3| {
+                        if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
+                            // We may have knocked out some of this region already:
+                            var eNT3m = toMask(NT3[NT3i]);
+                            const eLT3m = toMask(Lbod[LT3i]);
+                            const eRT3m = toMask(Rbod[RT3i]);
+                            LT3i -= 1;
+                            RT3i -= 1;
+                            if (NT3i > 0)
+                                NT3i -= 1;
+                            if (eNT3m.m == 0) {
+                                // corollary: NT2m already removed
+                                assert(!eNT2m.isElem(e3));
+                                continue :tier3;
+                            }
+                            var unionT4iter = blk: {
+                                break :blk eLT3m.setunion(eRT3m)
+                                    .iterElemBack();
+                            };
+                            while (unionT4iter.next()) |e4| {
+                                if (eLT3m.isElem(e4) and eRT3m.isElem(e4)) {
+                                    NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
+                                    if (NT4[NT4i] == 0) {
+                                        eNT3m.remove(codeunit(e4));
+                                    }
+                                    NT4i += 1;
+                                    LT4i += 1;
+                                    RT4i += 1;
+                                } else if (eLT3m.isElem(e4)) {
+                                    LT4i += 1;
+                                } else {
+                                    assert(RT3i.isElem(e4));
+                                    RT4i += 1;
+                                }
+                            }
+                            NT3[NT3i] = eNT3m.m;
+                            if (eNT3m.m == 0) {
+                                eNT2m.remove(codeunit(e3));
+                            }
+                        } else if (eLT2m.isElem(e3)) {
+                            LT3i -= 1;
+                        } else {
+                            assert(eRT2m.isElem(e3));
+                            RT3i -= 1;
+                        }
+                        NT3i -= 1;
+                    } // end T3 union iteration
+                    NT2[e2] = eNT2m.m;
+                    if (NT2[e2] == 0)
+                        NLeadMask.remove(e2);
+                } // end T2 intersection, subtract T2 indices
+                if (RLeadMask.isElem(e2))
+                    RT2i -= 1;
+                if (LLeadMask.isElem(e2))
+                    LT2i -= 1;
+            } // end T2 union iteration
+        } // end T4 block
+        header[LEAD] = LLeadMask.m;
+        const T2c = compactSlice(&NT2);
+        const T2end = 4 + T2c.len;
+        const T3c = compactSlice(NT3);
+        const T3end = T2end + T3c.len;
+        const T4 = compactSlice(NT4);
+        if (T4.len != 0)
+            header[T4_OFF] = T3end
+        else
+            header[T4_OFF] = 0;
+        const setLen = T3end + T4.len;
+        const Nbod = try allocator.alloc(u64, setLen);
+        @memcpy(Nbod[0..4], &header);
+        @memcpy(Nbod[4..T2end], T2c);
+        @memcpy(Nbod[T2end..T3end], T3c);
+        @memcpy(Nbod[T3end..setLen], T4);
+        return RuneSet{ .body = Nbod };
     }
 };
 
