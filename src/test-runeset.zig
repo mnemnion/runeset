@@ -220,6 +220,13 @@ test "set difference tests" {
 test "set intersection tests" {
     const allocator = std.testing.allocator;
     try verifySetIntersection(ascii, allocator);
+    try verifySetIntersection(greek, allocator);
+    try verifySetIntersection(math, allocator);
+    try verifySetIntersection(linear_B, allocator);
+    try verifySetIntersection(han_sample, allocator);
+    try verifySetIntersection(deseret, allocator);
+    try verifySetIntersection(two_byte_feather, allocator);
+    try verifySetIntersection(two_byte_chunk, allocator);
 }
 
 // Inline tests of runeset.zig and all tests of element.zig

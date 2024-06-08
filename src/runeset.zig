@@ -915,7 +915,7 @@ pub const RuneSet = struct {
             assert(RT2i == 3);
         }
         if (NLeadMask.m & MASK_IN_FOUR == 0) {
-            header[LEAD] = LLeadMask.m;
+            header[LEAD] = NLeadMask.m;
             const T2c = compactSlice(&NT2);
             const T2end = 4 + T2c.len;
             const T3c = compactSlice(NT3);
@@ -1020,7 +1020,7 @@ pub const RuneSet = struct {
                     LT2i -= 1;
             } // end T2 union iteration
         } // end T4 block
-        header[LEAD] = LLeadMask.m;
+        header[LEAD] = NLeadMask.m;
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
