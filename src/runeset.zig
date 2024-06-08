@@ -699,6 +699,7 @@ pub const RuneSet = struct {
         @memcpy(NT4, LT4);
         if (!R.noFourBytes()) {
             // Backward iterate T2, d region only
+            // TODO use a mask here and drop the conditional in the while loop
             var unionLeadIter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
             // Track ownership of T2 bits on each side:
             const LT2m = toMask(Lbod[LEAD]);
@@ -827,20 +828,20 @@ pub const RuneSet = struct {
         header[LEAD] = Lbod[LEAD] & Rbod[LEAD];
         header[T4_OFF] = 0;
         if (header[LEAD] == 0) {
-            const Nbod = allocator.alloc(u64, 4);
+            const Nbod = try allocator.alloc(u64, 4);
             @memcpy(Nbod, &header);
             return RuneSet{ .body = Nbod };
         }
         // No spreading L2 into NT2 this time, it would just create extra work
-        const NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         // Must be reassigned to header[LEAD] before returning
         var NLeadMask = toMask(header[LEAD]);
         const LLeadMask = L.maskAt(LEAD);
         const RLeadMask = R.maskAt(LEAD);
         {
-            const T2iter = LLeadMask.setunion(RLeadMask).iterElements();
-            const LT2i = 4;
-            const RT2i = 4;
+            var T2iter = LLeadMask.setunion(RLeadMask).iterElements();
+            var LT2i: usize = 4;
+            var RT2i: usize = 4;
             while (T2iter.next()) |e2| {
                 if (NLeadMask.isElem(e2)) {
                     NT2[e2] = Lbod[LT2i] & Rbod[RT2i];
@@ -881,7 +882,7 @@ pub const RuneSet = struct {
                     const eLT2m = toMask(Lbod[LT2i]);
                     const eRT2m = toMask(Rbod[RT2i]);
                     var eNT2m = toMask(NT2[e2]);
-                    const unionT3Iter = eLT2m.setunion(eRT2m).iterElemBack();
+                    var unionT3Iter = eLT2m.setunion(eRT2m).iterElemBack();
                     while (unionT3Iter.next()) |e3| {
                         if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
                             NT3[NT3i] = Rbod[RT3i] & Lbod[LT3i];
@@ -900,7 +901,7 @@ pub const RuneSet = struct {
                     }
                     NT2[e2] = eNT2m.m;
                     if (NT2[e2] == 0)
-                        NLeadMask.remove(e2);
+                        NLeadMask.remove(codeunit(e2));
                 }
                 // subtract T2 pointers
                 if (RLeadMask.isElem(e2))
@@ -948,7 +949,7 @@ pub const RuneSet = struct {
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
-            assert(NT4i != 0);
+            assert(LT4i != 0);
             assert(RT4i != 0);
             var unionT2iter = blk: {
                 const LT2d = Lbod[LEAD] & MASK_IN_FOUR;
@@ -992,7 +993,7 @@ pub const RuneSet = struct {
                                 } else if (eLT3m.isElem(e4)) {
                                     LT4i += 1;
                                 } else {
-                                    assert(RT3i.isElem(e4));
+                                    assert(eRT3m.isElem(e4));
                                     RT4i += 1;
                                 }
                             }
@@ -1006,11 +1007,12 @@ pub const RuneSet = struct {
                             assert(eRT2m.isElem(e3));
                             RT3i -= 1;
                         }
-                        NT3i -= 1;
+                        if (NT3i > 0)
+                            NT3i -= 1;
                     } // end T3 union iteration
                     NT2[e2] = eNT2m.m;
                     if (NT2[e2] == 0)
-                        NLeadMask.remove(e2);
+                        NLeadMask.remove(codeunit(e2));
                 } // end T2 intersection, subtract T2 indices
                 if (RLeadMask.isElem(e2))
                     RT2i -= 1;

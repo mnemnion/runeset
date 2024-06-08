@@ -78,10 +78,10 @@ fn verifySetProperties(str: []const u8, alloc: Allocator) !void {
     const setD = try set.setDifference(set, alloc);
     defer setD.deinit(alloc);
     try expectEqual(0, setD.codeunitCount());
-    // const setI = try set.setIntersection(set, alloc);
-    // defer setI.deinit(alloc);
-    // try expect(setI.equalTo(set));
-    // try expect(setU.equalTo(setI));
+    const setI = try set.setIntersection(set, alloc);
+    defer setI.deinit(alloc);
+    try expect(setI.equalTo(set));
+    try expect(setU.equalTo(setI));
 }
 
 /// Validate union properties of an LRstring set:
@@ -150,6 +150,36 @@ fn verifySetDifference(LR: LRstrings, alloc: Allocator) !void {
     try expectEqual(4, setNone.body.len);
 }
 
+fn verifySetIntersection(LR: LRstrings, alloc: Allocator) !void {
+    const setAll = try RuneSet.createFromConstString(LR.str, alloc);
+    defer setAll.deinit(alloc);
+    const setR = try RuneSet.createFromConstString(LR.r, alloc);
+    defer setR.deinit(alloc);
+    const setL = try RuneSet.createFromConstString(LR.l, alloc);
+    defer setL.deinit(alloc);
+    const setAllandR = try setAll.setIntersection(setR, alloc);
+    defer setAllandR.deinit(alloc);
+    const matchR = setAllandR.matchMany(LR.r);
+    if (matchR) |nMatch| {
+        try expectEqual(LR.r.len, nMatch);
+    } else try expect(false);
+    const setAllandL = try setAll.setIntersection(setL, alloc);
+    defer setAllandL.deinit(alloc);
+    const matchL = setAllandL.matchMany(LR.l);
+    if (matchL) |nMatch| {
+        try expectEqual(LR.l.len, nMatch);
+    } else try expect(false);
+    const setNoneL = try setAllandL.setIntersection(setAllandR, alloc);
+    defer setNoneL.deinit(alloc);
+    try expectEqual(0, setNoneL.codeunitCount());
+    try expectEqual(4, setNoneL.body.len);
+    const setNoneR = try setAllandR.setIntersection(setAllandL, alloc);
+    defer setNoneR.deinit(alloc);
+    try expectEqual(0, setNoneR.codeunitCount());
+    try expectEqual(4, setNoneR.body.len);
+    try expect(setNoneL.equalTo(setNoneR));
+}
+
 //| Test Suite
 
 test "set properties" {
@@ -185,6 +215,11 @@ test "set difference tests" {
     try verifySetDifference(deseret, allocator);
     try verifySetDifference(two_byte_feather, allocator);
     try verifySetDifference(two_byte_chunk, allocator);
+}
+
+test "set intersection tests" {
+    const allocator = std.testing.allocator;
+    try verifySetIntersection(ascii, allocator);
 }
 
 // Inline tests of runeset.zig and all tests of element.zig
