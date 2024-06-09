@@ -1428,10 +1428,6 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
         .lead => {
             const nB = a.nMultiBytes() orelse return null;
             assert(nB > 1);
-            // Set may not contain any three bytes:
-            if (nB >= 3 and MASK_OUT_TWO & set[LEAD] == 0) return 0;
-            // Or any four bytes:
-            if (nB == 4 and set[T4_OFF] == 0) return 0;
             if (nB > str.len) return null;
             const a_mask = toMask(set[LEAD]);
             if (!a_mask.isIn(a)) return 0;
@@ -1486,10 +1482,6 @@ fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
         .lead => {
             const nB = a.nMultiBytes().?;
             assert(nB > 1);
-            // Set may not contain any three bytes:
-            if (nB >= 3 and MASK_OUT_TWO & set[LEAD] == 0) return 0;
-            // Or any four bytes:
-            if (nB == 4 and set[T4_OFF] == 0) return 0;
             assert(nB <= str.len);
             const a_mask = toMask(set[LEAD]);
             if (!a_mask.isIn(a)) return 0;
