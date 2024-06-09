@@ -64,9 +64,21 @@ fn testMatchNone(set: RuneSet, str: []const u8) !void {
 /// - TODO the intersection of set with itself is identical
 ///
 /// Invalid UTF-8 is safe, but the test will fail.
-fn verifySetProperties(str: []const u8, alloc: Allocator) !void {
+fn createAndVerifySetProperties(str: []const u8, alloc: Allocator) !void {
     const set = try RuneSet.createFromConstString(str, alloc);
     defer set.deinit(alloc);
+    try verifySetProperties(str, set, alloc);
+}
+
+fn withSliceVerifySetProperties(strs: []const []const u8, alloc: Allocator) !void {
+    const set = try RuneSet.createFromConstStringSlice(strs, alloc);
+    defer set.deinit(alloc);
+    const str = try std.mem.concat(alloc, u8, strs);
+    defer alloc.free(str);
+    try verifySetProperties(str, set, alloc);
+}
+
+fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     const matched = set.matchMany(str);
     if (matched) |m| {
         try expectEqual(str.len, m);
@@ -184,15 +196,21 @@ fn verifySetIntersection(LR: LRstrings, alloc: Allocator) !void {
 
 test "set properties" {
     const allocator = std.testing.allocator;
-    try verifySetProperties(ascii.str, allocator);
-    try verifySetProperties(greek.str, allocator);
-    try verifySetProperties(math.str, allocator);
-    try verifySetProperties(linear_B.str, allocator);
-    try verifySetProperties(han_sample.str, allocator);
-    try verifySetProperties(deseret.str, allocator);
-    try verifySetProperties(two_byte_feather.str, allocator);
-    try verifySetProperties(cjk_feather.str, allocator);
-    try verifySetProperties(cjk_chunk.str, allocator);
+    try createAndVerifySetProperties(ascii.str, allocator);
+    try createAndVerifySetProperties(greek.str, allocator);
+    try createAndVerifySetProperties(math.str, allocator);
+    try createAndVerifySetProperties(linear_B.str, allocator);
+    try createAndVerifySetProperties(han_sample.str, allocator);
+    try createAndVerifySetProperties(deseret.str, allocator);
+    try createAndVerifySetProperties(two_byte_feather.str, allocator);
+    try createAndVerifySetProperties(cjk_feather.str, allocator);
+    try createAndVerifySetProperties(cjk_chunk.str, allocator);
+}
+
+test "set from slice properties" {
+    const allocator = std.testing.allocator;
+    const strs = .{ ascii.str, greek.str, math.str, linear_B.str, deseret.str, cjk_chunk.str };
+    try withSliceVerifySetProperties(&strs, allocator);
 }
 
 test "set union tests" {
