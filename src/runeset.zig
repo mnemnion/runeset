@@ -279,6 +279,17 @@ pub const RuneSet = struct {
         return matchOneDirectly(self.body, slice) orelse 0;
     }
 
+    /// Match one rune at the beginning of the slice.  Assumes the slice is
+    /// valid UTF-8.  It is legal to call this function if the byte at [0]
+    /// is not the lead byte of a sequence.  Returns number of bytes matched.
+    ///
+    /// Note: in debug mode, this will panic if it encounters invalid UTF-8.
+    /// In release mode, it can return nonsense results, or read beyond the
+    /// buffer if called on a truncated codepoitn.
+    pub fn matchOneAssumeValid(self: RuneSet, slice: []const u8) usize {
+        return matchOneDirectAssumeValid(self.body, slice);
+    }
+
     /// Match as many runes as possible starting from the beginning of
     /// the slice.  Returns the number of bytes matched.
     /// Safe to use on invalid UTF-8, returning null if any is found.
@@ -308,6 +319,21 @@ pub const RuneSet = struct {
             if (nB == 0)
                 return idx;
             idx += nB;
+        }
+        return idx;
+    }
+
+    /// Matches as many bytes as it can in `slice`, returning the number
+    /// of bytes matched.  `slice` must be valid UTF-8.  For a discussion
+    /// of the consequences of violating this assumption, see
+    /// `RuneSet.matchOneAssumeValid`.
+    pub fn matchManyAssumeValid(self: RuneSet, slice: []const u8) usize {
+        var idx: usize = 0;
+        while (idx < slice.len) {
+            const nBytes = self.matchOneAssumeValid(slice[idx..]);
+            if (nBytes == 0)
+                return idx;
+            idx += nBytes;
         }
         return idx;
     }
@@ -1428,6 +1454,64 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const d_loc = set[T4_OFF] + d_off;
             const d = codeunit(str[3]);
             if (d.kind != .follow) return null;
+            const d_mask = toMask(set[d_loc]);
+            if (d_mask.isIn(d)) return 4 else return 0;
+        },
+    }
+}
+
+/// Match one codepoint against the set, returning the number of bytes
+/// matched.  This performs no validation, meaning that invalid unicode
+/// can return bogus results.  Truncated UTF-8 at the end of a buffer
+/// *will* read beyond valid memory in fast release modes.  This
+/// function is, however safe to call with a follow byte at [0].
+fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
+    const a = codeunit(str[0]);
+    switch (a.kind) {
+        .follow => return 0,
+        .low => {
+            const mask = toMask(set[LOW]);
+            if (mask.isIn(a))
+                return 1
+            else
+                return 0;
+        },
+        .hi => {
+            const mask = toMask(set[HI]);
+            if (mask.isIn(a))
+                return 1
+            else
+                return 0;
+        },
+        .lead => {
+            const nB = a.nMultiBytes().?;
+            assert(nB > 1);
+            // Set may not contain any three bytes:
+            if (nB >= 3 and MASK_OUT_TWO & set[LEAD] == 0) return 0;
+            // Or any four bytes:
+            if (nB == 4 and set[T4_OFF] == 0) return 0;
+            assert(nB <= str.len);
+            const a_mask = toMask(set[LEAD]);
+            if (!a_mask.isIn(a)) return 0;
+            const b = codeunit(str[1]);
+            assert(b.kind == .follow);
+            const b_loc = 4 + a_mask.lowerThan(a).?;
+            const b_mask = toMask(set[b_loc]);
+            if (!b_mask.isIn(b)) return 0;
+            if (nB == 2) return 2;
+            const t3_off = 4 + @popCount(set[LEAD]);
+            const c = codeunit(str[2]);
+            assert(c.kind == .follow);
+            // Slice is safe because we know the T2 span has at least one word
+            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
+            const c_loc = t3_off + c_off;
+            const c_mask = toMask(set[c_loc]);
+            if (!c_mask.isIn(c)) return 0;
+            if (nB == 3) return 3;
+            const d_off = c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
+            const d_loc = set[T4_OFF] + d_off;
+            const d = codeunit(str[3]);
+            assert(d.kind == .follow);
             const d_mask = toMask(set[d_loc]);
             if (d_mask.isIn(d)) return 4 else return 0;
         },

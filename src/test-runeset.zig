@@ -82,6 +82,8 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
         try expectEqual(str.len, m);
         try expectEqual(str.len, set.codeunitCount());
     } else try expect(false);
+    const matched_v = set.matchManyAssumeValid(str);
+    try expectEqual(str.len, matched_v);
     const setU = try set.setUnion(set, alloc);
     defer setU.deinit(alloc);
     try expect(setU.equalTo(set));
