@@ -163,7 +163,7 @@ pub const RuneSet = struct {
         std.debug.print("\nT2:", .{});
         const T2 = self.t2slice();
         if (T2) |t2| {
-            std.debug.print("\n", .{});
+            std.debug.print(" {d}\n", .{t2.len});
             for (t2) |m| {
                 std.debug.print("0x{x:0>16} ", .{m});
             }
@@ -177,7 +177,7 @@ pub const RuneSet = struct {
         std.debug.print("\nT3:", .{});
         const T3 = self.t3slice();
         if (T3) |t3| {
-            std.debug.print("\n", .{});
+            std.debug.print(" {d}\n", .{t3.len});
             for (t3) |m| {
                 std.debug.print("0x{x:0>16} ", .{m});
             }
@@ -191,7 +191,7 @@ pub const RuneSet = struct {
         std.debug.print("\nT4:", .{});
         const T4 = self.t4slice();
         if (T4) |t4| {
-            std.debug.print("\n", .{});
+            std.debug.print(" {d}\n", .{t4.len});
             for (t4) |m| {
                 std.debug.print("0x{x:0>16} ", .{m});
             }
@@ -247,11 +247,20 @@ pub const RuneSet = struct {
 
     /// Create a RuneSet from a `[]const u8`.
     ///
-    /// Delete by passing the same allocator to `set.deinit(allocator)`.
+    /// Delete with `set.deinit(allocator)`.
     pub fn createFromConstString(str: []const u8, allocator: Allocator) !RuneSet {
         const s_mut = try makeMutable(str, allocator);
         defer allocator.free(s_mut);
         return try RuneSet.createFromMutableString(s_mut, allocator);
+    }
+
+    /// Create a RuneSet from a slice of 'string' slices: `[]const []const u8`.
+    ///
+    /// Delete with `set.deinit(allocator)`.
+    pub fn createFromConstStringSlice(strs: []const []const u8, allocator: Allocator) !RuneSet {
+        const s_concat = try std.mem.concat(allocator, u8, strs);
+        defer allocator.free(s_concat);
+        return try RuneSet.createFromMutableString(s_concat, allocator);
     }
 
     /// Match one rune at the beginning of the slice.
@@ -662,6 +671,7 @@ pub const RuneSet = struct {
                         RT3i += @popCount(Rbod[RT2i]);
                         RT2i -= 1;
                     }
+                    continue;
                 } else if (e2 < TWO_MAX) { // done
                     break;
                 }
@@ -971,8 +981,8 @@ pub const RuneSet = struct {
             } // sanity checks:
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
-            assert(LT2i == 3);
-            assert(RT2i == 3);
+            assert(LT2i == 3 + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(RT2i == 3 + @popCount(Rbod[LEAD] & MASK_IN_TWO));
         }
         if (NLeadMask.m & MASK_IN_FOUR == 0) {
             header[LEAD] = NLeadMask.m;
