@@ -438,10 +438,6 @@ pub const RuneSet = struct {
         }
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..]));
         defer allocator.free(NT3);
-        // TODO we may not need to memset 0 NT3
-        // In fact we probably do not. Remove after
-        // test coverage anyway.
-        @memset(NT3, 0);
         // We need to track ownership of the four-byte NT3 regions.
         // In principle, these could be 8 * 64 in width.  We *could*
         // use a comptime-known value of 512 bits, but this is seriously
@@ -553,8 +549,6 @@ pub const RuneSet = struct {
         // - allocate NT4
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
-        // TODO again, shouldn't need this
-        @memset(NT4, 0);
         // T4 rank
         {
             // We've tracked ownership of NT3, now we need the offset
@@ -963,7 +957,6 @@ pub const RuneSet = struct {
         }
         // Tier 3
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..]));
-        @memset(NT3, 0); // TODO again, shouldn't don't need this
         defer allocator.free(NT3);
         {
             // We iterate back through both T2s to find surviving T3s
@@ -1028,8 +1021,6 @@ pub const RuneSet = struct {
         const NT4len = popCountSlice(NT3[0..NT3_d_len]);
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
-        // TODO defensive:
-        @memset(NT4, 0);
         // We follow the now familiar strategy of iterating across
         // unions of the set masks, and following through on the
         // intersections.
