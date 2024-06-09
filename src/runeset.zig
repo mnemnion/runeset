@@ -372,8 +372,8 @@ pub const RuneSet = struct {
             var N3i: usize = 0;
             var L3i = L.t3start();
             var R3i = R.t3start();
-            var L2off = L.t2end();
-            var R2off = R.t2end();
+            var L2off = L.t2end() - 1;
+            var R2off = R.t2end() - 1;
             // Reverse iterate lead mask elements of three and four bytes
             var nT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
             while (nT2iter.next()) |e2| {
@@ -383,9 +383,9 @@ pub const RuneSet = struct {
                     // Reverse-iterate the mask and test membership
                     const L_tE = toMask(Lbod[L2off] & ~Rbod[R2off]);
                     const R_tE = toMask(Rbod[R2off] & ~Lbod[R2off]);
+                    const both_tE = toMask(Lbod[L2off] & Rbod[R2off]);
                     L2off -= 1;
                     R2off -= 1;
-                    const both_tE = toMask(Lbod[L2off] & Rbod[R2off]);
                     var elemIter = toMask(NT2[e2]).iterElemBack();
                     while (elemIter.next()) |e3| {
                         if (both_tE.isElem(e3)) {
@@ -437,8 +437,8 @@ pub const RuneSet = struct {
                     }
                 } else unreachable;
             } // Sanity checks:
-            assert(L2off == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_THREE));
-            assert(R2off == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_THREE));
+            assert(L2off == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(R2off == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
             assert(L3i == L.t3end());
             assert(R3i == R.t3end());
         } // end T3 rank block
