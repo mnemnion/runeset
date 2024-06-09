@@ -57,17 +57,11 @@ pub const CodeUnit = packed struct(u8) {
 
     /// Mask off all bits >= cu.body
     pub inline fn hiMask(self: *const CodeUnit) u64 {
-        if (self.body == 63) {
-            return std.math.maxInt(u64);
-        } else {
-            return (@as(u64, 1) << self.body) - 1;
-        }
+        return (@as(u64, 1) << self.body) - 1;
     }
 
     /// Mask off all bits <= cu.body
     pub inline fn lowMask(self: *const CodeUnit) u64 {
-        if (self.body == 0)
-            return std.math.maxInt(u64);
         if (self.body == 63)
             return 0
         else
@@ -289,6 +283,25 @@ test codeunit {
     }
 }
 
+// test "low mask" {
+//     const c0 = codeunit('\x00');
+//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c0.body, c0.lowMask() });
+//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c0.hiMask()});
+//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c0.inMask()});
+//     const c1 = codeunit('\x01');
+//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c1.body, c1.lowMask() });
+//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c1.hiMask()});
+//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c1.inMask()});
+//     const c27 = codeunit('\x1b');
+//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c27.body, c27.lowMask() });
+//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c27.hiMask()});
+//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c27.inMask()});
+//     const c63 = codeunit('?');
+//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c63.body, c63.lowMask() });
+//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c63.hiMask()});
+//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c63.inMask()});
+// }
+
 test "mask tests" {
     var mask = Mask.toMask(0);
     const B = codeunit('B');
@@ -326,6 +339,15 @@ test "mask tests" {
     try expectEqual(26, m2.count());
 }
 
+test "mask removal" {
+    var m0 = Mask.toMask(0);
+    const c0 = codeunit('\x00');
+    m0.add(c0);
+    try expect(m0.isIn(c0));
+    m0.remove(c0);
+    try expectEqual(false, m0.isIn(c0));
+}
+
 test "back iter" {
     var mask = Mask.toMask(0);
     const At = codeunit('@');
@@ -337,6 +359,12 @@ test "back iter" {
     try expectEqual(A.body, iterB.next().?);
     try expectEqual(At.body, iterB.next().?);
     try expectEqual(null, iterB.next());
+    var alliter = Mask.toMask(std.math.maxInt(u64)).iterElemBack();
+    var count: usize = 0;
+    while (alliter.next()) |_| {
+        count += 1;
+    }
+    try expectEqual(64, count);
 }
 
 // test "bleh" {

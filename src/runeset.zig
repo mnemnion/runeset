@@ -82,7 +82,7 @@ pub const RuneSet = struct {
     //| sort of runes implied by asking for the region in
     //| question
 
-    inline fn t2end(self: RuneSet) usize {
+    pub inline fn t2end(self: RuneSet) usize {
         return self.t2start() + self.t2len();
     }
 
@@ -120,21 +120,21 @@ pub const RuneSet = struct {
         return self.body[T4_OFF];
     }
 
-    inline fn t2slice(self: RuneSet) ?[]u64 {
+    pub inline fn t2slice(self: RuneSet) ?[]const u64 {
         if (self.body[LEAD] == 0)
             return null
         else
             return self.body[4..self.t2end()];
     }
 
-    inline fn t3slice(self: RuneSet) ?[]const u64 {
+    pub inline fn t3slice(self: RuneSet) ?[]const u64 {
         if (self.noThreeBytes())
             return null
         else
             return self.body[self.t3start()..self.t3end()];
     }
 
-    inline fn t4slice(self: RuneSet) ?[]const u64 {
+    pub inline fn t4slice(self: RuneSet) ?[]const u64 {
         if (self.noFourBytes())
             return null
         else
@@ -145,8 +145,68 @@ pub const RuneSet = struct {
         return toMask(self.body[off]);
     }
 
-    fn debugMaskAt(self: RuneSet, off: usize) void {
+    //| Debugging
+
+    pub fn debugMaskAt(self: RuneSet, off: usize) void {
         std.debug.print("0x{x:0>16}\n", .{self.body[off]});
+    }
+
+    pub fn debugT1(self: RuneSet) void {
+        std.debug.print("\nheader:\n", .{});
+        for (self.body[0..4]) |m| {
+            std.debug.print("0x{x:0>16} ", .{m});
+        }
+        std.debug.print("\n", .{});
+    }
+
+    pub fn debugT2(self: RuneSet) void {
+        std.debug.print("\nT2:", .{});
+        const T2 = self.t2slice();
+        if (T2) |t2| {
+            std.debug.print("\n", .{});
+            for (t2) |m| {
+                std.debug.print("0x{x:0>16} ", .{m});
+            }
+        } else {
+            std.debug.print(" null\n", .{});
+        }
+        std.debug.print("\n", .{});
+    }
+
+    pub fn debugT3(self: RuneSet) void {
+        std.debug.print("\nT3:", .{});
+        const T3 = self.t3slice();
+        if (T3) |t3| {
+            std.debug.print("\n", .{});
+            for (t3) |m| {
+                std.debug.print("0x{x:0>16} ", .{m});
+            }
+        } else {
+            std.debug.print(" null\n", .{});
+        }
+        std.debug.print("\n", .{});
+    }
+
+    pub fn debugT4(self: RuneSet) void {
+        std.debug.print("\nT4:", .{});
+        const T4 = self.t4slice();
+        if (T4) |t4| {
+            std.debug.print("\n", .{});
+            for (t4) |m| {
+                std.debug.print("0x{x:0>16} ", .{m});
+            }
+        } else {
+            std.debug.print(" null\n", .{});
+        }
+        std.debug.print("\n", .{});
+    }
+
+    pub fn debugPrint(self: RuneSet) void {
+        std.debug.print("\n", .{});
+        self.debugT1();
+        self.debugT2();
+        self.debugT3();
+        self.debugT4();
     }
 
     // No need for noTwoBytes because LEAD is present
@@ -840,8 +900,8 @@ pub const RuneSet = struct {
         const RLeadMask = R.maskAt(LEAD);
         {
             var T2iter = LLeadMask.setunion(RLeadMask).iterElements();
-            var LT2i: usize = 4;
-            var RT2i: usize = 4;
+            var LT2i: usize = L.t2start();
+            var RT2i: usize = L.t2start();
             while (T2iter.next()) |e2| {
                 if (NLeadMask.isElem(e2)) {
                     NT2[e2] = Lbod[LT2i] & Rbod[RT2i];
@@ -891,13 +951,13 @@ pub const RuneSet = struct {
                             if (NT3[NT3i] == 0) {
                                 eNT2m.remove(codeunit(e3));
                             }
+                            NT3i += 1;
                         } else if (eLT2m.isElem(e3)) {
                             LT3i += 1;
                         } else {
                             assert(eRT2m.isElem(e3));
                             RT3i += 1;
                         }
-                        NT3i += 1;
                     }
                     NT2[e2] = eNT2m.m;
                     if (NT2[e2] == 0)
@@ -910,7 +970,7 @@ pub const RuneSet = struct {
                     LT2i -= 1;
             } // sanity checks:
             assert(LT3i == L.t3end());
-            assert(RT3i == L.t3end());
+            assert(RT3i == R.t3end());
             assert(LT2i == 3);
             assert(RT2i == 3);
         }
@@ -970,8 +1030,6 @@ pub const RuneSet = struct {
                             const eRT3m = toMask(Rbod[RT3i]);
                             LT3i -= 1;
                             RT3i -= 1;
-                            if (NT3i > 0)
-                                NT3i -= 1;
                             if (eNT3m.m == 0) {
                                 // corollary: NT2m already removed
                                 assert(!eNT2m.isElem(e3));
@@ -1001,14 +1059,14 @@ pub const RuneSet = struct {
                             if (eNT3m.m == 0) {
                                 eNT2m.remove(codeunit(e3));
                             }
+                            if (NT3i > 0)
+                                NT3i -= 1;
                         } else if (eLT2m.isElem(e3)) {
                             LT3i -= 1;
                         } else {
                             assert(eRT2m.isElem(e3));
                             RT3i -= 1;
                         }
-                        if (NT3i > 0)
-                            NT3i -= 1;
                     } // end T3 union iteration
                     NT2[e2] = eNT2m.m;
                     if (NT2[e2] == 0)

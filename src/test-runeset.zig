@@ -166,8 +166,8 @@ fn verifySetIntersection(LR: LRstrings, alloc: Allocator) !void {
     const setAllandL = try setAll.setIntersection(setL, alloc);
     defer setAllandL.deinit(alloc);
     const matchL = setAllandL.matchMany(LR.l);
-    if (matchL) |nMatch| {
-        try expectEqual(LR.l.len, nMatch);
+    if (matchL) |nMatch2| {
+        try expectEqual(LR.l.len, nMatch2);
     } else try expect(false);
     const setNoneL = try setAllandL.setIntersection(setAllandR, alloc);
     defer setNoneL.deinit(alloc);
@@ -191,7 +191,8 @@ test "set properties" {
     try verifySetProperties(han_sample.str, allocator);
     try verifySetProperties(deseret.str, allocator);
     try verifySetProperties(two_byte_feather.str, allocator);
-    // try verifySetProperties(cjk_feather.str, allocator);
+    try verifySetProperties(cjk_feather.str, allocator);
+    try verifySetProperties(cjk_chunk.str, allocator);
 }
 
 test "set union tests" {
@@ -232,6 +233,8 @@ test "set intersection tests" {
     try verifySetIntersection(deseret, allocator);
     try verifySetIntersection(two_byte_feather, allocator);
     try verifySetIntersection(two_byte_chunk, allocator);
+    try verifySetIntersection(cjk_feather, allocator);
+    try verifySetIntersection(cjk_chunk, allocator);
 }
 
 // Inline tests of runeset.zig and all tests of element.zig
