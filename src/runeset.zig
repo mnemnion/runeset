@@ -347,6 +347,36 @@ pub const RuneSet = struct {
         return true;
     }
 
+    /// A logging equality test, for testing purposes
+    pub fn expectEqualTo(self: RuneSet, other: RuneSet) bool {
+        if (self.body.len != other.body.len) {
+            std.debug.print("L.len {d} != R.len {d}\n", .{ self.body.len, other.body.len });
+            return false;
+        }
+        const LT3 = self.t3start();
+        const RT3 = other.t3start();
+        const LT4 = self.t4offset();
+        const RT4 = other.t4offset();
+        var match = true;
+        for (self.body, other.body, 0..) |l, r, i| {
+            if (l != r) {
+                std.debug.print("at {d}, L != R:\n", .{i});
+                if (i >= LT4)
+                    std.debug.print("LT4 + {d}, ", .{i - LT4})
+                else if (i >= LT3)
+                    std.debug.print("LT3 + {d}, ", .{i - LT3});
+                if (i >= RT4)
+                    std.debug.print("RT4 + {d}\n", .{i - RT4})
+                else if (i >= RT3)
+                    std.debug.print("RT3 + {d}\n", .{i - RT3});
+                std.debug.print("L: 0x{x:0>16}\n", .{l});
+                std.debug.print("R: 0x{x:0>16}\n", .{r});
+                match = false;
+            }
+        }
+        return match;
+    }
+
     // Return a tuple counting number of one, two, three, and four
     // byte codepoints
     fn counts(self: RuneSet) struct { usize, usize, usize, usize } {
@@ -591,8 +621,8 @@ pub const RuneSet = struct {
                     const NT3mIter = @popCount(NT3[i]);
                     for (0..NT3mIter) |_| {
                         NT4[NT4i] = Rbod[RT4i];
-                        NT4i += 1;
                         RT4i += 1;
+                        NT4i += 1;
                     }
                 }
             }
