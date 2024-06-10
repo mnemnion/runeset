@@ -248,6 +248,7 @@ test "LRstring set properties" {
     try withLRstringsVerifySetProperties(two_byte_feather, allocator);
     try withLRstringsVerifySetProperties(cjk_feather, allocator);
     try withLRstringsVerifySetProperties(cjk_chunk, allocator);
+    try withLRstringsVerifySetProperties(cjk_scatter, allocator);
     try withLRstringsVerifySetProperties(pua_A_chunk, allocator);
     try withLRstringsVerifySetProperties(pua_A_feather, allocator);
     try withLRstringsVerifySetProperties(smp_chunk, allocator);
@@ -266,7 +267,7 @@ test "detention for failing tests" {
     try verifySetUnion(ascii, allocator);
     // try verifySetUnion(smp_scatter, allocator);
     // try verifySetDifference(smp_scatter, allocator);
-    // try verifySetIntersection(smp_scatter, allocator);
+    try verifySetIntersection(smp_scatter, allocator);
     // try verifySetUnion(pua_A_chunk, allocator);
     // try verifySetDifference(pua_A_chunk, allocator);
     // try verifySetIntersection(pua_A_chunk, allocator);
@@ -284,6 +285,7 @@ test "set union tests" {
     try verifySetUnion(two_byte_chunk, allocator);
     try verifySetUnion(cjk_feather, allocator);
     try verifySetUnion(cjk_chunk, allocator);
+    try verifySetUnion(cjk_scatter, allocator);
     try verifySetUnion(pua_A_feather, allocator);
     try verifySetUnion(smp_chunk, allocator);
 }
@@ -300,6 +302,7 @@ test "set difference tests" {
     try verifySetDifference(two_byte_chunk, allocator);
     try verifySetDifference(cjk_feather, allocator);
     try verifySetDifference(cjk_chunk, allocator);
+    try verifySetDifference(cjk_scatter, allocator);
     try verifySetDifference(pua_A_feather, allocator);
     try verifySetDifference(smp_chunk, allocator);
 }
@@ -316,6 +319,7 @@ test "set intersection tests" {
     try verifySetIntersection(two_byte_chunk, allocator);
     try verifySetIntersection(cjk_feather, allocator);
     try verifySetIntersection(cjk_chunk, allocator);
+    try verifySetIntersection(cjk_scatter, allocator);
     try verifySetIntersection(pua_A_feather, allocator);
     try verifySetIntersection(smp_chunk, allocator);
 }
@@ -342,6 +346,7 @@ const two_byte_feather = data.two_byte_feather;
 const two_byte_chunk = data.two_byte_chunk;
 const cjk_feather = data.cjk_feather;
 const cjk_chunk = data.cjk_chunk;
+const cjk_scatter = data.cjk_scatter;
 const pua_A_chunk = data.pua_A_chunk;
 const pua_A_feather = data.pua_A_feather;
 const smp_chunk = data.smp_chunk;
