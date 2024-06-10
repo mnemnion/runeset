@@ -91,15 +91,20 @@ pub const RuneSet = struct {
         return 4 + @popCount(self.body[LEAD] & MASK_IN_TWO);
     }
 
-    // Start of region of T2 containing 4 byte b codeunits
+    /// Start of region of T2 containing 4 byte b codeunits
     inline fn t2_4b_start(self: RuneSet) usize {
         return 4 + @popCount(self.body[LEAD] & MASK_OUT_FOUR);
     }
 
-    // Start of region of T3 containing 3 byte c codeunits
+    /// Start of region of T3 containing 3 byte c codeunits
     inline fn t3_3c_start(self: RuneSet) usize {
         const c4b_off = popCountSlice(self.body[self.t2_4b_start()..self.t2end()]);
         return self.t3start() + c4b_off;
+    }
+
+    /// Beginning (backwardsly speaking!) of d byte region of T3
+    inline fn t3_3d_begin(self: RuneSet) usize {
+        self.t3_3c_start() - 1;
     }
 
     // Start of T3 region (also t3_3d_start)
@@ -476,7 +481,7 @@ pub const RuneSet = struct {
         // will be word-backed and live in a register while we're using it.
         //
         // Find four-byte range of NT3 by popcounting NT2
-
+        // TODO we don't need the ownership at all, remove it
         const NT2b4len = popCountSlice(NT2[THREE_MAX..]);
         var LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4len * 64);
         defer LT3_own.deinit(allocator);
@@ -581,20 +586,28 @@ pub const RuneSet = struct {
         defer allocator.free(NT4);
         // T4 rank
         {
+            // Rewrite:
+            // First step is to forward-iterate the union mask:
+            const NT2dm = toMask(NT2[LEAD] & MASK_IN_FOUR);
+            const LT2dm = toMask(Lbod[LEAD] & MASK_IN_FOUR);
+            const RT2dm = toMask(Rbod[LEAD] & MASK_IN_FOUR);
+            // to be continued.
+
             // We've tracked ownership of NT3, now we need the offset
             // where c bytes of four-byte runes live
             // The +1 is so we don't go under zero when reverse iterating
             var NT3i = popCountSlice(NT2[THREE_MAX..]) + 1;
-            const LT3off = L.t3start();
-            const RT3off = R.t3start();
+            // start for LT3 and RT3 d byte region
+            var LT3d_i = L.t3_3d_begin();
+            var RT3d_i = R.t3_3d_begin();
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
             while (NT3i > 0) : (NT3i -= 1) {
                 const i = NT3i - 1;
                 if (LT3_own.isSet(i) and RT3_own.isSet(i)) {
-                    const LT3m = toMask(Lbod[LT3off + i]);
-                    const RT3m = toMask(Rbod[RT3off + i]);
+                    const LT3m = toMask(Lbod[LT3d_i]);
+                    const RT3m = toMask(Rbod[RT3d_i]);
                     var NT3mIter = toMask(NT3[i]).iterElemBack();
                     while (NT3mIter.next()) |e| {
                         if (LT3m.isElem(e) and RT3m.isElem(e)) {
@@ -625,6 +638,9 @@ pub const RuneSet = struct {
                         NT4i += 1;
                     }
                 }
+                //
+                LT3d_i -= 1;
+                RT3d_i -= 1;
             }
         } // end T4 rank
         const T2c = compactSlice(&NT2);

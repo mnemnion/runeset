@@ -263,11 +263,11 @@ test "set from slice properties" {
 
 test "detention for failing tests" {
     const allocator = std.testing.allocator;
-    // judas goat to use the allocator:
+    // judas goat to use the allocator, so we can check regressions easily
     try verifySetUnion(ascii, allocator);
-    // try verifySetUnion(smp_scatter, allocator);
+    try verifySetUnion(smp_scatter, allocator);
     // try verifySetDifference(smp_scatter, allocator);
-    try verifySetIntersection(smp_scatter, allocator);
+    // try verifySetIntersection(smp_scatter, allocator);
     // try verifySetUnion(pua_A_chunk, allocator);
     // try verifySetDifference(pua_A_chunk, allocator);
     // try verifySetIntersection(pua_A_chunk, allocator);
