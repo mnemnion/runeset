@@ -605,9 +605,11 @@ pub const RuneSet = struct {
                             var unionT3iter = blk: {
                                 break :blk LT3m.setunion(RT3m).iterElemBack();
                             };
-                            assert(unionT3iter.mask.m == NT3[NT3d_i]);
-                            if (NT3d_i > 0)
-                                NT3d_i -= 1;
+                            if (builtin.mode == .Debug) {
+                                assert(unionT3iter.mask.m == NT3[NT3d_i]);
+                                if (NT3d_i > 0)
+                                    NT3d_i -= 1;
+                            }
                             while (unionT3iter.next()) |e4| {
                                 if (bothT3m.isElem(e4)) {
                                     NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];

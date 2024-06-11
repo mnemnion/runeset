@@ -253,6 +253,10 @@ test "LRstring set properties" {
     try withLRstringsVerifySetProperties(pua_A_feather, allocator);
     try withLRstringsVerifySetProperties(smp_chunk, allocator);
     try withLRstringsVerifySetProperties(smp_scatter, allocator);
+    try withLRstringsVerifySetProperties(tangut_chunk, allocator);
+    try withLRstringsVerifySetProperties(tangut_widechunk, allocator);
+    try withLRstringsVerifySetProperties(tangut_scatter, allocator);
+    try withLRstringsVerifySetProperties(khitan_widechunk, allocator);
 }
 
 test "set from slice properties" {
@@ -265,7 +269,11 @@ test "detention for failing tests" {
     const allocator = std.testing.allocator;
     // judas goat to use the allocator, so we can check regressions easily
     try verifySetUnion(ascii, allocator);
-    try verifySetUnion(smp_scatter, allocator);
+    try verifySetUnion(tangut_chunk, allocator);
+    // try verifySetUnion(tangut_widechunk, allocator);
+    try verifySetUnion(khitan_widechunk, allocator);
+    // try verifySetUnion(tangut_scatter, allocator);
+    // try verifySetUnion(smp_scatter, allocator);
     // try verifySetDifference(smp_scatter, allocator);
     // try verifySetIntersection(smp_scatter, allocator);
     // try verifySetUnion(pua_A_chunk, allocator);
@@ -288,6 +296,7 @@ test "set union tests" {
     try verifySetUnion(cjk_scatter, allocator);
     try verifySetUnion(pua_A_feather, allocator);
     try verifySetUnion(smp_chunk, allocator);
+    try verifySetUnion(tangut_chunk, allocator);
 }
 
 test "set difference tests" {
@@ -351,6 +360,10 @@ const pua_A_chunk = data.pua_A_chunk;
 const pua_A_feather = data.pua_A_feather;
 const smp_chunk = data.smp_chunk;
 const smp_scatter = data.smp_scatter;
+const tangut_chunk = data.tangut_chunk;
+const tangut_scatter = data.tangut_scatter;
+const tangut_widechunk = data.tangut_widechunk;
+const khitan_widechunk = data.khitan_widechunk;
 
 test "data integrity" {
     try std.testing.expectEqualStrings(pua_A_chunk.str, pua_A_feather.str);
