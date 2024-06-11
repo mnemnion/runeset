@@ -1134,12 +1134,12 @@ pub const RuneSet = struct {
         // intersections.
         { // In which we track Everything:
             // backward through T2s
-            var RT2i = R.t2end() - 1;
-            var LT2i = L.t2end() - 1;
-            // backward through d bytes of T3
-            var NT3i = NT3_d_len - 1;
-            var LT3i = L.t3_3c_start() - 1;
-            var RT3i = R.t3_3c_start() - 1;
+            var RT2i = R.t2final();
+            var LT2i = L.t2final();
+            // forward through d bytes of T3
+            var NT3i: usize = 0;
+            var LT3i = L.t3start();
+            var RT3i = R.t3start();
             // forward through T4
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
@@ -1153,57 +1153,56 @@ pub const RuneSet = struct {
             };
             while (unionT2iter.next()) |e2| {
                 if (NT2[e2] != 0) {
-                    var eNT2m = toMask(NT2[e2]);
-                    const eLT2m = toMask(Lbod[LT2i]);
-                    const eRT2m = toMask(Rbod[RT2i]);
-                    var unionT3iter = eLT2m.setunion(eRT2m).iterElemBack();
+                    var NT2m = toMask(NT2[e2]);
+                    const LT2m = toMask(Lbod[LT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
+                    var unionT3iter = LT2m.setunion(RT2m).iterElemBack();
                     tier3: while (unionT3iter.next()) |e3| {
-                        if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
+                        if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
                             // We may have knocked out some of this region already:
-                            var eNT3m = toMask(NT3[NT3i]);
-                            const eLT3m = toMask(Lbod[LT3i]);
-                            const eRT3m = toMask(Rbod[RT3i]);
-                            LT3i -= 1;
-                            RT3i -= 1;
-                            if (eNT3m.m == 0) {
+                            var NT3m = toMask(NT3[NT3i]);
+                            if (NT3m.m == 0) {
                                 // corollary: NT2m already removed
-                                assert(!eNT2m.isElem(e3));
+                                assert(!NT2m.isElem(e3));
                                 continue :tier3;
                             }
+                            const LT3m = toMask(Lbod[LT3i]);
+                            const RT3m = toMask(Rbod[RT3i]);
+                            LT3i += 1;
+                            RT3i += 1;
                             var unionT4iter = blk: {
-                                break :blk eLT3m.setunion(eRT3m)
-                                    .iterElemBack();
+                                break :blk LT3m.setunion(RT3m)
+                                    .iterElements();
                             };
                             while (unionT4iter.next()) |e4| {
-                                if (eLT3m.isElem(e4) and eRT3m.isElem(e4)) {
+                                if (LT3m.isElem(e4) and RT3m.isElem(e4)) {
                                     NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
                                     if (NT4[NT4i] == 0) {
-                                        eNT3m.remove(codeunit(e4));
+                                        NT3m.remove(codeunit(e4));
                                     }
                                     NT4i += 1;
                                     LT4i += 1;
                                     RT4i += 1;
-                                } else if (eLT3m.isElem(e4)) {
+                                } else if (LT3m.isElem(e4)) {
                                     LT4i += 1;
                                 } else {
-                                    assert(eRT3m.isElem(e4));
+                                    assert(RT3m.isElem(e4));
                                     RT4i += 1;
                                 }
                             }
-                            NT3[NT3i] = eNT3m.m;
-                            if (eNT3m.m == 0) {
-                                eNT2m.remove(codeunit(e3));
+                            NT3[NT3i] = NT3m.m;
+                            if (NT3m.m == 0) {
+                                NT2m.remove(codeunit(e3));
                             }
-                            if (NT3i > 0)
-                                NT3i -= 1;
-                        } else if (eLT2m.isElem(e3)) {
-                            LT3i -= 1;
+                            NT3i += 1;
+                        } else if (LT2m.isElem(e3)) {
+                            LT3i += 1;
                         } else {
-                            assert(eRT2m.isElem(e3));
-                            RT3i -= 1;
+                            assert(RT2m.isElem(e3));
+                            RT3i += 1;
                         }
                     } // end T3 union iteration
-                    NT2[e2] = eNT2m.m;
+                    NT2[e2] = NT2m.m;
                     if (NT2[e2] == 0)
                         NLeadMask.remove(codeunit(e2));
                 } // end T2 intersection, subtract T2 indices

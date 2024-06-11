@@ -280,9 +280,6 @@ test "detention for failing tests" {
     const allocator = std.testing.allocator;
     // judas goat to use the allocator, so we can check regressions easily
     try verifySetUnion(ascii, allocator);
-    // try verifySetIntersection(smp_scatter, allocator);
-    // try verifySetIntersection(pua_A_chunk, allocator);
-    // try verifySetIntersection(khitan_widechunk, allocator);
 }
 
 test "set union tests" {
@@ -345,8 +342,13 @@ test "set intersection tests" {
     try verifySetIntersection(cjk_chunk, allocator);
     try verifySetIntersection(cjk_scatter, allocator);
     try verifySetIntersection(pua_A_feather, allocator);
+    try verifySetIntersection(pua_A_chunk, allocator);
     try verifySetIntersection(smp_chunk, allocator);
-    // try verifySetIntersection(smp_scatter, allocator);
+    try verifySetIntersection(smp_scatter, allocator);
+    try verifySetIntersection(tangut_chunk, allocator);
+    try verifySetIntersection(tangut_scatter, allocator);
+    try verifySetIntersection(tangut_widechunk, allocator);
+    try verifySetIntersection(khitan_widechunk, allocator);
 }
 
 // Inline tests of runeset.zig and all tests of element.zig
