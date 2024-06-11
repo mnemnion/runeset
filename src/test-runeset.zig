@@ -132,8 +132,19 @@ fn verifySetUnion(s: LRstrings, alloc: Allocator) !void {
     const setAll = try RuneSet.createFromConstString(s.str, alloc);
     defer setAll.deinit(alloc);
     //setL.debugPrint();
-    try expectEqual(setAll.codeunitCount(), setU.codeunitCount());
+    if (!setAll.equalTo(setU)) {
+        std.debug.print("\nSet All:", .{});
+        setAll.debugPrint();
+        std.debug.print("\nSet L:", .{});
+        setL.debugPrint();
+        std.debug.print("\nSet R:", .{});
+        setR.debugPrint();
+        std.debug.print("\nSet U:", .{});
+        setU.debugPrint();
+        try expect(false);
+    }
     try expect(setAll.expectEqualTo(setU));
+    try expectEqual(setAll.codeunitCount(), setU.codeunitCount());
     const matchL = setU.matchMany(s.l);
     if (matchL) |m| {
         try expectEqual(s.l.len, m);
@@ -269,16 +280,12 @@ test "detention for failing tests" {
     const allocator = std.testing.allocator;
     // judas goat to use the allocator, so we can check regressions easily
     try verifySetUnion(ascii, allocator);
-    try verifySetUnion(tangut_chunk, allocator);
-    // try verifySetUnion(tangut_widechunk, allocator);
-    try verifySetUnion(khitan_widechunk, allocator);
-    // try verifySetUnion(tangut_scatter, allocator);
-    // try verifySetUnion(smp_scatter, allocator);
     // try verifySetDifference(smp_scatter, allocator);
     // try verifySetIntersection(smp_scatter, allocator);
-    // try verifySetUnion(pua_A_chunk, allocator);
     // try verifySetDifference(pua_A_chunk, allocator);
     // try verifySetIntersection(pua_A_chunk, allocator);
+    // try verifySetDifference(khitan_widechunk, allocator);
+    // try verifySetIntersection(khitan_widechunk, allocator);
 }
 
 test "set union tests" {
@@ -297,6 +304,11 @@ test "set union tests" {
     try verifySetUnion(pua_A_feather, allocator);
     try verifySetUnion(smp_chunk, allocator);
     try verifySetUnion(tangut_chunk, allocator);
+    try verifySetUnion(tangut_widechunk, allocator);
+    try verifySetUnion(khitan_widechunk, allocator);
+    try verifySetUnion(tangut_scatter, allocator);
+    try verifySetUnion(smp_scatter, allocator);
+    try verifySetUnion(pua_A_chunk, allocator);
 }
 
 test "set difference tests" {
