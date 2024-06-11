@@ -1211,23 +1211,34 @@ pub const RuneSet = struct {
                 if (LLeadMask.isElem(e2))
                     LT2i -= 1;
             } // end T2 union iteration
+            // postconditions
+            assert(NT4i == NT4.len);
+            assert(RT3i == R.t3_3c_start());
+            assert(LT3i == L.t3_3c_start());
+            assert(RT2i == R.t2start() + @popCount(Rbod[LEAD] & MASK_OUT_FOUR) - 1);
+            assert(LT2i == L.t2start() + @popCount(Lbod[LEAD] & MASK_OUT_FOUR) - 1);
         } // end T4 block
         header[LEAD] = NLeadMask.m;
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
+        assert(T3c.len == popCountSlice(NT2[TWO_MAX..]));
         const T3end = T2end + T3c.len;
-        const T4 = compactSlice(NT4);
-        if (T4.len != 0)
+        const T4c = compactSlice(NT4);
+        if (T4c.len != 0)
             header[T4_OFF] = T3end
         else
             header[T4_OFF] = 0;
-        const setLen = T3end + T4.len;
+        if (builtin.mode == .Debug) {
+            const T3d_len = popCountSlice(NT2[THREE_MAX..]);
+            assert(T4c.len == popCountSlice(T3c[0..T3d_len]));
+        }
+        const setLen = T3end + T4c.len;
         const Nbod = try allocator.alloc(u64, setLen);
         @memcpy(Nbod[0..4], &header);
         @memcpy(Nbod[4..T2end], T2c);
         @memcpy(Nbod[T2end..T3end], T3c);
-        @memcpy(Nbod[T3end..setLen], T4);
+        @memcpy(Nbod[T3end..setLen], T4c);
         return RuneSet{ .body = Nbod };
     }
 };
