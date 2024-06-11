@@ -82,8 +82,14 @@ pub const RuneSet = struct {
     //| sort of runes implied by asking for the region in
     //| question
 
+    /// end of T2, exclusive
     pub inline fn t2end(self: RuneSet) usize {
         return self.t2start() + self.t2len();
+    }
+
+    /// final element of T2
+    pub inline fn t2final(self: RuneSet) usize {
+        return self.t2end() - 1;
     }
 
     // Start of region of T2 containing 3 byte b codeunits
@@ -588,60 +594,112 @@ pub const RuneSet = struct {
         {
             // Rewrite:
             // First step is to forward-iterate the union mask:
-            const NT2dm = toMask(NT2[LEAD] & MASK_IN_FOUR);
-            const LT2dm = toMask(Lbod[LEAD] & MASK_IN_FOUR);
-            const RT2dm = toMask(Rbod[LEAD] & MASK_IN_FOUR);
-            // to be continued.
-
-            // We've tracked ownership of NT3, now we need the offset
-            // where c bytes of four-byte runes live
-            // The +1 is so we don't go under zero when reverse iterating
-            var NT3i = popCountSlice(NT2[THREE_MAX..]) + 1;
-            // start for LT3 and RT3 d byte region
+            const NT1_head_m = toMask(header[LEAD] & MASK_IN_FOUR);
+            const LT1_head_m = toMask(Lbod[LEAD] & MASK_IN_FOUR);
+            const RT1_head_m = toMask(Rbod[LEAD] & MASK_IN_FOUR);
+            // Track T2 offsets forward, to mask and measure T3s:
+            var LT2i = L.t2start();
+            var RT2i = R.t2start();
+            // Track D region of T3 offsets backward:
             var LT3d_i = L.t3_3d_begin();
             var RT3d_i = R.t3_3d_begin();
+            // And track T4 offsets forward
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
-            while (NT3i > 0) : (NT3i -= 1) {
-                const i = NT3i - 1;
-                if (LT3_own.isSet(i) and RT3_own.isSet(i)) {
-                    const LT3m = toMask(Lbod[LT3d_i]);
-                    const RT3m = toMask(Rbod[RT3d_i]);
-                    var NT3mIter = toMask(NT3[i]).iterElemBack();
-                    while (NT3mIter.next()) |e| {
-                        if (LT3m.isElem(e) and RT3m.isElem(e)) {
-                            NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
+            var NT2iter = NT1_head_m.iterElements();
+            while (NT2iter.next()) |e2| {
+                assert(NT2[e2] != 0);
+                if (LT1_head_m.isElem(e2) and RT1_head_m.isElem(e2)) {
+                    // Shared T2 region
+                    const LT2m = toMask(Lbod[LT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
+                    const unionT2m = toMask(NT2[e2]);
+                    const bothT2m = LT2m.intersection(RT2m);
+                    assert(unionT2m.m == LT2m.m | RT2m.m);
+                    var unionT2iter = unionT2m.iterElements();
+                    while (unionT2iter.next()) |e3| {
+                        if (bothT2m.isElem(e3)) {
+                            // back iterate both T3 masks
+                            const LT3m = toMask(Lbod[LT3d_i]);
+                            const RT3m = toMask(RT3d_i);
+                            const bothT3m = LT3m.intersection(RT3m);
+                            const unionT3iter = blk: {
+                                break :blk LT3m.setunion(RT3m).iterElemBack();
+                            };
+                            while (unionT3iter.next()) |e4| {
+                                if (bothT3m.isElem(e4)) {
+                                    NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
+                                    LT4i += 1;
+                                    RT4i += 1;
+                                } else if (LT3m.isElem(e4)) {
+                                    NT4[NT4i] = Lbod[LT4i];
+                                    LT4i += 1;
+                                } else {
+                                    assert(RT3m.isElem(e4));
+                                    NT4[NT4i] = Rbod[RT4i];
+                                    RT4i += 1;
+                                }
+                                NT4i += 1;
+                            }
+                        } else if (LT2m.isElem(e3)) {
+                            //
+                            const T4count = @popCount(Lbod[LT3d_i]);
+                            for (0..T4count) |_| {
+                                NT4[NT4i] = Lbod[LT4i];
+                                NT4i += 1;
+                                LT4i += 1;
+                            }
+                        } else {
+                            assert(RT2m.isElem(e3));
+                            const T4count = @popCount(Rbod[RT3d_i]);
+                            for (0..T4count) |_| {
+                                NT4[NT4i] = Rbod[RT4i];
+                                NT4i += 1;
+                                RT4i += 1;
+                            }
+                        }
+                        LT3d_i -= 1;
+                        RT3d_i -= 1;
+                    } // end T2 mask iteration
+                } else if (LT1_head_m.isElem(e2)) {
+                    // popcount T2 mask
+                    assert(NT2[e2] == Lbod[LT2i]);
+                    const T3count = @popCount(Lbod[LT2i]);
+                    for (0..T3count) |_| {
+                        const T4count = @popCount(Lbod[LT3d_i]);
+                        for (0..T4count) |_| {
+                            NT4i = Lbod[LT4i];
                             LT4i += 1;
+                            NT4i += 1;
+                        }
+                        LT3d_i -= 1;
+                    }
+                    LT2i += 1;
+                } else {
+                    assert(RT1_head_m.isElem(e2)); // popcount T2 mask
+                    assert(NT2[e2] == Rbod[RT2i]);
+                    const T3count = @popCount(Rbod[RT2i]);
+                    for (0..T3count) |_| {
+                        const T4count = @popCount(Rbod[RT3d_i]);
+                        for (0..T4count) |_| {
+                            NT4i = Rbod[RT4i];
                             RT4i += 1;
-                        } else if (LT3m.isElem(e)) {
-                            NT4[NT4i] = Lbod[LT4i];
-                            LT4i += 1;
-                        } else if (RT3m.isElem(e)) {
-                            NT4[NT4i] = Rbod[RT4i];
-                            RT4i += 1;
-                        } else unreachable;
-                        NT4i += 1;
+                            NT4i += 1;
+                        }
+                        RT3d_i -= 1;
                     }
-                } else if (LT3_own.isSet(i)) {
-                    const NT3mIter = @popCount(NT3[i]);
-                    for (0..NT3mIter) |_| {
-                        NT4[NT4i] = Lbod[LT4i];
-                        LT4i += 1;
-                        NT4i += 1;
-                    }
-                } else if (RT3_own.isSet(i)) {
-                    const NT3mIter = @popCount(NT3[i]);
-                    for (0..NT3mIter) |_| {
-                        NT4[NT4i] = Rbod[RT4i];
-                        RT4i += 1;
-                        NT4i += 1;
-                    }
+                    RT2i += 1;
                 }
-                //
-                LT3d_i -= 1;
-                RT3d_i -= 1;
             }
+            // postconditions
+            assert(NT4i == NT4.len);
+            assert(LT2i == L.t3start());
+            assert(RT2i == R.t3start());
+            assert(RT3d_i == R.t2final());
+            assert(LT3d_i == L.t2final());
+            assert(LT4i == Lbod.len);
+            assert(RT4i == Rbod.len);
         } // end T4 rank
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
