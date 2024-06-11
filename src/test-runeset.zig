@@ -280,11 +280,8 @@ test "detention for failing tests" {
     const allocator = std.testing.allocator;
     // judas goat to use the allocator, so we can check regressions easily
     try verifySetUnion(ascii, allocator);
-    // try verifySetDifference(smp_scatter, allocator);
     // try verifySetIntersection(smp_scatter, allocator);
-    // try verifySetDifference(pua_A_chunk, allocator);
     // try verifySetIntersection(pua_A_chunk, allocator);
-    // try verifySetDifference(khitan_widechunk, allocator);
     // try verifySetIntersection(khitan_widechunk, allocator);
 }
 
@@ -326,6 +323,9 @@ test "set difference tests" {
     try verifySetDifference(cjk_scatter, allocator);
     try verifySetDifference(pua_A_feather, allocator);
     try verifySetDifference(smp_chunk, allocator);
+    try verifySetDifference(smp_scatter, allocator);
+    try verifySetDifference(pua_A_chunk, allocator);
+    try verifySetDifference(khitan_widechunk, allocator);
 }
 
 test "set intersection tests" {

@@ -884,67 +884,64 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // Tier 4.
-        // Same deal: Iterate d byte region of T2,
-        // find corresponding regions of LT3 and RT3,
-        // diff overlaps, remove nulls all the way up to LLeadMask
-        //
-        // While this may read much like a clone of the Tier 3 logic,
-        // it is not.  Tier 3 did T2 backward, and T3 forward.  Tier 4
-        // does T2 *and* T3 backward, and T4 forward.
         const LT4 = L.t4slice().?; // checked above
         const NT4 = try allocator.alloc(u64, LT4.len);
         defer allocator.free(NT4);
         @memcpy(NT4, LT4);
         if (!R.noFourBytes()) {
-            // Backward iterate T2, d region only
-            // TODO use a mask here and drop the conditional in the while loop
-            var unionLeadIter = toMask(Lbod[LEAD] | Rbod[LEAD]).iterElemBack();
+            // We iterate backward through NT2, and each mask thereof,
+            // allowing forward iteration through T3 and T4.
             // Track ownership of T2 bits on each side:
-            const LT2m = toMask(Lbod[LEAD]);
-            const RT2m = toMask(Rbod[LEAD]);
-            // Track progress backward through T3 of both sides
-            var NT3i = popCountSlice(NT2[THREE_MAX..]) - 1;
-            var RT3i = R.t3_3c_start() - 1;
-            // c-byte region of NT2 is all from L2, but RT2 offset needs tracking
-            var RT2i = R.t3start() - 1;
-            // track T4 progress
+            const LT1m = toMask(Lbod[LEAD]);
+            const RT1m = toMask(Rbod[LEAD]);
+            // Track progress forward through T3
+            // The d region of NT3 is identical to LT3
+            var NT3i: usize = 0;
+            var RT3i = R.t3start();
+            // Similarly, d region of NT2 is still identical to LT2
+            var RT2i = R.t2final();
+            // track T4 progress forward
             var NT4i: usize = 0;
             var RT4i = Rbod[T4_OFF];
+            // Backward iterate T2, d region only
+            var unionLeadIter = blk: {
+                const LT1d = Lbod[LEAD] & MASK_IN_FOUR;
+                const RT1d = Rbod[LEAD] & MASK_IN_FOUR;
+                break :blk toMask(LT1d | RT1d).iterElemBack();
+            };
             while (unionLeadIter.next()) |e2| {
-                if (e2 < THREE_MAX)
-                    break;
-                // in d region of T2
-                const inLT2 = LT2m.isElem(e2);
+                const inLT2 = LT1m.isElem(e2);
                 if (!inLT2) {
                     // must be in R, we skip
-                    assert(RT2m.isElem(e2));
+                    assert(RT1m.isElem(e2));
                     assert(Rbod[RT2i] != 0);
-                    // both iterations are backward!
-                    RT3i -= @popCount(Rbod[RT2i]);
+                    assert(NT2[e2] == 0);
+                    // move T3 index forward and T2 index back
+                    RT3i += @popCount(Rbod[RT2i]);
                     RT2i -= 1;
                     continue;
                 }
-                const inRT2 = RT2m.isElem(e2);
+                const inRT2 = RT1m.isElem(e2);
                 if (inLT2 and inRT2) {
                     // Find T3 overlaps and apply T4 accordingly
                     assert(NT2[e2] != 0);
-                    const eLT2m = toMask(NT2[e2]);
+                    const LT2m = toMask(NT2[e2]);
                     assert(Rbod[RT2i] != 0);
-                    const eRT2m = toMask(Rbod[RT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
                     // We're done with RT2i, decrement
                     RT2i -= 1;
                     // iterate the union of this T2 word backward
-                    var unionT2iter = toMask(eLT2m.m | eRT2m.m).iterElemBack();
+                    var unionT2iter = toMask(LT2m.m | RT2m.m).iterElemBack();
                     while (unionT2iter.next()) |e3| {
-                        if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
-                            // we iterate the union mask backward,
-                            // advancing T4 cursors. Intersections are diffed,
+                        if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
+                            // We iterate forward through T3 and T4.
+                            // Intersections are diffed,
                             // zeroed words remove that NT3 bit.
-                            assert(NT3[NT3i] != 0);
+                            assert(NT3[NT3i] != 0); // may not be true later!
                             const eLT3m = toMask(NT3[NT3i]);
                             assert(Rbod[RT3i] != 0);
                             const eRT3m = toMask(Rbod[RT3i]);
-                            var unionT3iter = toMask(eLT3m.m | eRT3m.m).iterElemBack();
+                            var unionT3iter = toMask(eLT3m.m | eRT3m.m).iterElements();
                             while (unionT3iter.next()) |e4| {
                                 if (eLT3m.isElem(e4) and eRT3m.isElem(e4)) {
                                     NT4[NT4i] &= ~Rbod[RT4i];
@@ -968,16 +965,14 @@ pub const RuneSet = struct {
                                 N3m.remove(codeunit(e3));
                                 NT2[e2] = N3m.m;
                             } // NT2[e2] checked after unionT2iter while loop
-                            // finished iterating T3 mask, subtract indices
-                            if (NT3i > 0)
-                                // if it is zero, we won't have further matches
-                                NT3i -= 1;
-                            RT3i -= 1;
-                        } else if (eRT2m.isElem(e3)) {
-                            RT3i -= 1;
+                            // finished iterating T3 mask
+                            NT3i += 1;
+                            RT3i += 1;
+                        } else if (RT2m.isElem(e3)) {
+                            RT3i += 1;
                         } else {
-                            assert(eLT2m.isElem(e3));
-                            NT3i -= 1;
+                            assert(LT2m.isElem(e3));
+                            NT3i += 1;
                         }
                     }
                     // Check for emptied NT2 mask
@@ -986,7 +981,7 @@ pub const RuneSet = struct {
                     }
                 } else { // Must be L2, subtract mask from LT3i
                     assert(inLT2);
-                    NT3i -= @popCount(NT2[e2]);
+                    NT3i += @popCount(NT2[e2]);
                 }
             }
         } else {
