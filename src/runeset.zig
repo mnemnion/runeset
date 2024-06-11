@@ -983,7 +983,12 @@ pub const RuneSet = struct {
                     assert(inLT2);
                     NT3i += @popCount(NT2[e2]);
                 }
-            }
+            } // Postconditions
+            assert(NT4i == NT4.len);
+            // No post for NT3i, we may have removed bits from the popcount
+            assert(RT2i == R.t2_4b_start() - 1);
+            assert(RT3i == R.t3_3c_start());
+            assert(RT4i == Rbod.len);
         } else {
             assert(R.t4slice() == null);
         }

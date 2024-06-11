@@ -322,9 +322,12 @@ test "set difference tests" {
     try verifySetDifference(cjk_chunk, allocator);
     try verifySetDifference(cjk_scatter, allocator);
     try verifySetDifference(pua_A_feather, allocator);
+    try verifySetDifference(pua_A_chunk, allocator);
     try verifySetDifference(smp_chunk, allocator);
     try verifySetDifference(smp_scatter, allocator);
-    try verifySetDifference(pua_A_chunk, allocator);
+    try verifySetDifference(tangut_chunk, allocator);
+    try verifySetDifference(tangut_scatter, allocator);
+    try verifySetDifference(tangut_widechunk, allocator);
     try verifySetDifference(khitan_widechunk, allocator);
 }
 
@@ -343,6 +346,7 @@ test "set intersection tests" {
     try verifySetIntersection(cjk_scatter, allocator);
     try verifySetIntersection(pua_A_feather, allocator);
     try verifySetIntersection(smp_chunk, allocator);
+    // try verifySetIntersection(smp_scatter, allocator);
 }
 
 // Inline tests of runeset.zig and all tests of element.zig
