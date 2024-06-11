@@ -196,23 +196,20 @@ pub const Mask = struct {
 /// u6 elements of the Mask.
 pub const MaskElements = struct {
     mask: Mask,
-    i: u6 = 0,
+    i: u8 = 0,
     pub fn next(itr: *MaskElements) ?u6 {
         var result: ?u6 = null;
-        while (itr.i < 63) {
-            if (itr.mask.bitSet(itr.i)) {
-                result = itr.i;
+        while (itr.i < 64) {
+            const e: u6 = @intCast(itr.i);
+            if (itr.mask.bitSet(e)) {
+                result = e;
                 itr.i += 1;
                 break;
             } else {
                 itr.i += 1;
             }
         }
-        if (result) |r| return r;
-        if (itr.i == 63 and itr.mask.bitSet(itr.i))
-            return itr.i
-        else
-            return null;
+        return result;
     }
 };
 
@@ -360,6 +357,15 @@ test "back iter" {
     try expectEqual(At.body, iterB.next().?);
     try expectEqual(null, iterB.next());
     var alliter = Mask.toMask(std.math.maxInt(u64)).iterElemBack();
+    var count: usize = 0;
+    while (alliter.next()) |_| {
+        count += 1;
+    }
+    try expectEqual(64, count);
+}
+
+test "forward iter" {
+    var alliter = Mask.toMask(std.math.maxInt(u64)).iterElements();
     var count: usize = 0;
     while (alliter.next()) |_| {
         count += 1;
