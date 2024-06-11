@@ -131,8 +131,8 @@ fn verifySetUnion(s: LRstrings, alloc: Allocator) !void {
     defer setU.deinit(alloc);
     const setAll = try RuneSet.createFromConstString(s.str, alloc);
     defer setAll.deinit(alloc);
-    try expectEqual(setAll.codeunitCount(), setU.codeunitCount());
     //setL.debugPrint();
+    try expectEqual(setAll.codeunitCount(), setU.codeunitCount());
     try expect(setAll.expectEqualTo(setU));
     const matchL = setU.matchMany(s.l);
     if (matchL) |m| {
@@ -265,7 +265,7 @@ test "detention for failing tests" {
     const allocator = std.testing.allocator;
     // judas goat to use the allocator, so we can check regressions easily
     try verifySetUnion(ascii, allocator);
-    // try verifySetUnion(smp_scatter, allocator);
+    try verifySetUnion(smp_scatter, allocator);
     // try verifySetDifference(smp_scatter, allocator);
     // try verifySetIntersection(smp_scatter, allocator);
     // try verifySetUnion(pua_A_chunk, allocator);

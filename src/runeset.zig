@@ -14,6 +14,7 @@
 //! TODO iteration of codeunits, serializing to string, and subset operation.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const dbgPrint = std.debug.print;
@@ -563,10 +564,10 @@ pub const RuneSet = struct {
         // T4 rank
         {
             // First step is to forward-iterate the union mask:
-            const NT1_head_m = toMask(header[LEAD] & MASK_IN_FOUR);
-            const LT1_head_m = toMask(Lbod[LEAD] & MASK_IN_FOUR);
-            const RT1_head_m = toMask(Rbod[LEAD] & MASK_IN_FOUR);
-            assert(NT1_head_m.m == LT1_head_m.setunion(RT1_head_m).m);
+            const NT1d_m = toMask(header[LEAD] & MASK_IN_FOUR);
+            const LT1d_m = toMask(Lbod[LEAD] & MASK_IN_FOUR);
+            const RT1d_m = toMask(Rbod[LEAD] & MASK_IN_FOUR);
+            assert(NT1d_m.m == LT1d_m.setunion(RT1d_m).m);
             // Track T2 offsets forward, to mask and measure T3s:
             var LT2i = L.t2_4b_start();
             var RT2i = R.t2_4b_start();
@@ -574,14 +575,16 @@ pub const RuneSet = struct {
             // No need to track NT3, we don't use it
             var LT3d_i = L.t3_3d_begin();
             var RT3d_i = R.t3_3d_begin();
+            // Debug tracking NT3
+            var NT3d_i = popCountSlice(NT2[THREE_MAX..]) - 1;
             // And track T4 offsets forward
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
-            var NT2iter = NT1_head_m.iterElements();
+            var NT2iter = NT1d_m.iterElements();
             while (NT2iter.next()) |e2| {
                 assert(NT2[e2] != 0);
-                if (LT1_head_m.isElem(e2) and RT1_head_m.isElem(e2)) {
+                if (LT1d_m.isElem(e2) and RT1d_m.isElem(e2)) {
                     // Shared T2 region
                     const LT2m = toMask(Lbod[LT2i]);
                     const RT2m = toMask(Rbod[RT2i]);
@@ -602,6 +605,9 @@ pub const RuneSet = struct {
                             var unionT3iter = blk: {
                                 break :blk LT3m.setunion(RT3m).iterElemBack();
                             };
+                            assert(unionT3iter.mask.m == NT3[NT3d_i]);
+                            if (NT3d_i > 0)
+                                NT3d_i -= 1;
                             while (unionT3iter.next()) |e4| {
                                 if (bothT3m.isElem(e4)) {
                                     NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
@@ -621,6 +627,9 @@ pub const RuneSet = struct {
                             const T4count = @popCount(Lbod[LT3d_i]);
                             LT3d_i -= 1;
                             assert(T4count > 0);
+                            assert(Lbod[LT3d_i] == NT3[NT3d_i]);
+                            if (NT3d_i > 0)
+                                NT3d_i -= 1;
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Lbod[LT4i];
                                 NT4i += 1;
@@ -631,6 +640,9 @@ pub const RuneSet = struct {
                             const T4count = @popCount(Rbod[RT3d_i]);
                             RT3d_i -= 1;
                             assert(T4count > 0);
+                            assert(Rbod[RT3d_i] == NT3[NT3d_i]);
+                            if (NT3d_i > 0)
+                                NT3d_i -= 1;
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Rbod[RT4i];
                                 NT4i += 1;
@@ -638,7 +650,7 @@ pub const RuneSet = struct {
                             }
                         } // End T3 iteration
                     } // End T2 iteration
-                } else if (LT1_head_m.isElem(e2)) {
+                } else if (LT1d_m.isElem(e2)) {
                     // popcount T2 mask
                     assert(NT2[e2] == Lbod[LT2i]);
                     const T3count = @popCount(Lbod[LT2i]);
@@ -648,6 +660,9 @@ pub const RuneSet = struct {
                         const T4count = @popCount(Lbod[LT3d_i]);
                         LT3d_i -= 1;
                         assert(T4count > 0);
+                        assert(Lbod[LT3d_i] == NT3[NT3d_i]);
+                        if (NT3d_i > 0)
+                            NT3d_i -= 1;
                         for (0..T4count) |_| {
                             NT4i = Lbod[LT4i];
                             LT4i += 1;
@@ -655,11 +670,14 @@ pub const RuneSet = struct {
                         }
                     }
                 } else {
-                    assert(RT1_head_m.isElem(e2)); // popcount T2 mask
+                    assert(RT1d_m.isElem(e2)); // popcount T2 mask
                     assert(NT2[e2] == Rbod[RT2i]);
                     const T3count = @popCount(Rbod[RT2i]);
                     RT2i += 1;
                     assert(T3count > 0);
+                    assert(Rbod[RT3d_i] == NT3[NT3d_i]);
+                    if (NT3d_i > 0)
+                        NT3d_i -= 1;
                     for (0..T3count) |_| {
                         const T4count = @popCount(Rbod[RT3d_i]);
                         RT3d_i -= 1;
