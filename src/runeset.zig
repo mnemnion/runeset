@@ -15,7 +15,6 @@
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const DynamicBitSetUnmanaged = std.bit_set.DynamicBitSetUnmanaged;
 const assert = std.debug.assert;
 const dbgPrint = std.debug.print;
 
@@ -92,7 +91,7 @@ pub const RuneSet = struct {
         return self.t2end() - 1;
     }
 
-    // Start of region of T2 containing 3 byte b codeunits
+    /// Start of region of T2 containing 3 byte b codeunits
     inline fn t2_3b_start(self: RuneSet) usize {
         return 4 + @popCount(self.body[LEAD] & MASK_IN_TWO);
     }
@@ -463,11 +462,11 @@ pub const RuneSet = struct {
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         L.spreadT2(&NT2);
         {
-            var t2i: usize = 4;
+            var T2i: usize = 4;
             var rIter = toMask(Rbod[LEAD]).iterElements();
             while (rIter.next()) |rOff| {
-                NT2[rOff] |= Rbod[t2i];
-                t2i += 1;
+                NT2[rOff] |= Rbod[T2i];
+                T2i += 1;
             }
         }
         if (L.noThreeBytes() and R.noThreeBytes()) {
@@ -479,100 +478,70 @@ pub const RuneSet = struct {
         }
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..]));
         defer allocator.free(NT3);
-        // We need to track ownership of the four-byte NT3 regions.
-        // In principle, these could be 8 * 64 in width.  We *could*
-        // use a comptime-known value of 512 bits, but this is seriously
-        // wasteful for almost all actual RuneSets, we'll get better data
-        // locality by heap-allocating a DynamicBitSet.  99% of the time it
-        // will be word-backed and live in a register while we're using it.
-        //
-        // Find four-byte range of NT3 by popcounting NT2
-        // TODO we don't need the ownership at all, remove it
-        const NT2b4len = popCountSlice(NT2[THREE_MAX..]);
-        var LT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4len * 64);
-        defer LT3_own.deinit(allocator);
-        var RT3_own = try DynamicBitSetUnmanaged.initEmpty(allocator, NT2b4len * 64);
-        defer RT3_own.deinit(allocator);
         // T3 rank
         {
             // These masks tell us which words in NT2 belong
             // to which sets.
-            const L_T2 = toMask(Lbod[LEAD] & ~Rbod[LEAD]);
-            const R_T2 = toMask(Rbod[LEAD] & ~Lbod[LEAD]);
-            const both_T2 = toMask(Lbod[LEAD] & Rbod[LEAD]);
+            const LT2m = toMask(Lbod[LEAD] & ~Rbod[LEAD]);
+            const RT2m = toMask(Rbod[LEAD] & ~Lbod[LEAD]);
+            const both_T2m = toMask(header[LEAD]);
+            assert(both_T2m.m == LT2m.setunion(RT2m).m);
             // Track progressive offsets into T3s
-            var N3i: usize = 0;
-            var L3i = L.t3start();
-            var R3i = R.t3start();
-            var L2off = L.t2end() - 1;
-            var R2off = R.t2end() - 1;
+            var NT3i: usize = 0;
+            var LT3i = L.t3start();
+            var RT3i = R.t3start();
             // Reverse iterate lead mask elements of three and four bytes
+            var LT2i = L.t2end() - 1;
+            var RT2i = R.t2end() - 1;
             var nT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
             while (nT2iter.next()) |e2| {
-                // We only set ownership for four-byte chars
-                const set_owned = if (e2 >= THREE_MAX) true else false;
-                if (both_T2.isElem(e2)) {
+                if (both_T2m.isElem(e2)) {
                     // Reverse-iterate the mask and test membership
-                    const L_tE = toMask(Lbod[L2off] & ~Rbod[R2off]);
-                    const R_tE = toMask(Rbod[R2off] & ~Lbod[R2off]);
-                    const both_tE = toMask(Lbod[L2off] & Rbod[R2off]);
-                    L2off -= 1;
-                    R2off -= 1;
+                    // TODO the normal both/left/right logic works here, replace
+                    const L_tE = toMask(Lbod[LT2i] & ~Rbod[RT2i]);
+                    const R_tE = toMask(Rbod[RT2i] & ~Lbod[RT2i]);
+                    const both_tE = toMask(Lbod[LT2i] & Rbod[RT2i]);
+                    LT2i -= 1;
+                    RT2i -= 1;
                     var elemIter = toMask(NT2[e2]).iterElemBack();
                     while (elemIter.next()) |e3| {
                         if (both_tE.isElem(e3)) {
-                            NT3[N3i] = Lbod[L3i] | Rbod[R3i];
-                            L3i += 1;
-                            R3i += 1;
-                            if (set_owned) {
-                                LT3_own.set(N3i);
-                                RT3_own.set(N3i);
-                            }
+                            NT3[NT3i] = Lbod[LT3i] | Rbod[RT3i];
+                            LT3i += 1;
+                            RT3i += 1;
                         } else if (L_tE.isElem(e3)) {
-                            NT3[N3i] = Lbod[L3i];
-                            L3i += 1;
-                            if (set_owned) {
-                                LT3_own.set(N3i);
-                            }
+                            NT3[NT3i] = Lbod[LT3i];
+                            LT3i += 1;
                         } else if (R_tE.isElem(e3)) {
-                            NT3[N3i] = Rbod[R3i];
-                            R3i += 1;
-                            if (set_owned) {
-                                RT3_own.set(N3i);
-                            }
+                            NT3[NT3i] = Rbod[RT3i];
+                            RT3i += 1;
                         } else unreachable;
-                        N3i += 1;
+                        NT3i += 1;
                     }
-                } else if (L_T2.isElem(e2)) {
-                    L2off -= 1;
-                    const pc = @popCount(NT2[e2]);
-                    assert(pc > 0);
-                    for (0..pc) |_| {
-                        NT3[N3i] = Lbod[L3i];
-                        if (set_owned) {
-                            LT3_own.set(N3i);
-                        }
-                        N3i += 1;
-                        L3i += 1;
+                } else if (LT2m.isElem(e2)) {
+                    LT2i -= 1;
+                    const T3count = @popCount(NT2[e2]);
+                    assert(T3count > 0);
+                    for (0..T3count) |_| {
+                        NT3[NT3i] = Lbod[LT3i];
+                        NT3i += 1;
+                        LT3i += 1;
                     }
-                } else if (R_T2.isElem(e2)) {
-                    R2off -= 1;
-                    const pc = @popCount(NT2[e2]);
-                    assert(pc > 0);
-                    for (0..pc) |_| {
-                        NT3[N3i] = Rbod[L3i];
-                        if (set_owned) {
-                            RT3_own.set(N3i);
-                        }
-                        N3i += 1;
-                        R3i += 1;
+                } else if (RT2m.isElem(e2)) {
+                    RT2i -= 1;
+                    const T3count = @popCount(NT2[e2]);
+                    assert(T3count > 0);
+                    for (0..T3count) |_| {
+                        NT3[NT3i] = Rbod[LT3i];
+                        NT3i += 1;
+                        RT3i += 1;
                     }
                 } else unreachable;
             } // Sanity checks:
-            assert(L2off == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
-            assert(R2off == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
-            assert(L3i == L.t3end());
-            assert(R3i == R.t3end());
+            assert(LT2i == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(RT2i == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(LT3i == L.t3end());
+            assert(RT3i == R.t3end());
         } // end T3 rank block
         if (L.noFourBytes() and R.noFourBytes()) {
             const T2c = compactSlice(&NT2);
@@ -586,21 +555,23 @@ pub const RuneSet = struct {
         }
         // T4 setup
         // - popcount of four-byte range of NT3
+        const NT2b4len = popCountSlice(NT2[THREE_MAX..]);
         const NT4len = popCountSlice(NT3[0..NT2b4len]);
         // - allocate NT4
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
         // T4 rank
         {
-            // Rewrite:
             // First step is to forward-iterate the union mask:
             const NT1_head_m = toMask(header[LEAD] & MASK_IN_FOUR);
             const LT1_head_m = toMask(Lbod[LEAD] & MASK_IN_FOUR);
             const RT1_head_m = toMask(Rbod[LEAD] & MASK_IN_FOUR);
+            assert(NT1_head_m.m == LT1_head_m.setunion(RT1_head_m).m);
             // Track T2 offsets forward, to mask and measure T3s:
-            var LT2i = L.t2start();
-            var RT2i = R.t2start();
+            var LT2i = L.t2_4b_start();
+            var RT2i = R.t2_4b_start();
             // Track D region of T3 offsets backward:
+            // No need to track NT3, we don't use it
             var LT3d_i = L.t3_3d_begin();
             var RT3d_i = R.t3_3d_begin();
             // And track T4 offsets forward
@@ -620,7 +591,7 @@ pub const RuneSet = struct {
                     var unionT2iter = unionT2m.iterElements();
                     while (unionT2iter.next()) |e3| {
                         if (bothT2m.isElem(e3)) {
-                            // back iterate both T3 masks
+                            // back iterate both T3 masks, backward
                             const LT3m = toMask(Lbod[LT3d_i]);
                             const RT3m = toMask(RT3d_i);
                             const bothT3m = LT3m.intersection(RT3m);
@@ -643,8 +614,8 @@ pub const RuneSet = struct {
                                 NT4i += 1;
                             }
                         } else if (LT2m.isElem(e3)) {
-                            //
                             const T4count = @popCount(Lbod[LT3d_i]);
+                            assert(T4count > 0);
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Lbod[LT4i];
                                 NT4i += 1;
@@ -653,21 +624,24 @@ pub const RuneSet = struct {
                         } else {
                             assert(RT2m.isElem(e3));
                             const T4count = @popCount(Rbod[RT3d_i]);
+                            assert(T4count > 0);
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Rbod[RT4i];
                                 NT4i += 1;
                                 RT4i += 1;
                             }
-                        }
+                        } // End T3 iteration
                         LT3d_i -= 1;
                         RT3d_i -= 1;
-                    } // end T2 mask iteration
+                    } // End T2 iteration
                 } else if (LT1_head_m.isElem(e2)) {
                     // popcount T2 mask
                     assert(NT2[e2] == Lbod[LT2i]);
                     const T3count = @popCount(Lbod[LT2i]);
+                    assert(T3count > 0);
                     for (0..T3count) |_| {
                         const T4count = @popCount(Lbod[LT3d_i]);
+                        assert(T4count > 0);
                         for (0..T4count) |_| {
                             NT4i = Lbod[LT4i];
                             LT4i += 1;
@@ -680,8 +654,10 @@ pub const RuneSet = struct {
                     assert(RT1_head_m.isElem(e2)); // popcount T2 mask
                     assert(NT2[e2] == Rbod[RT2i]);
                     const T3count = @popCount(Rbod[RT2i]);
+                    assert(T3count > 0);
                     for (0..T3count) |_| {
                         const T4count = @popCount(Rbod[RT3d_i]);
+                        assert(T4count > 0);
                         for (0..T4count) |_| {
                             NT4i = Rbod[RT4i];
                             RT4i += 1;
