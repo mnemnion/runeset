@@ -1085,42 +1085,48 @@ pub const RuneSet = struct {
         {
             // We iterate back through both T2s to find surviving T3s
             var unionT2iter = toMask((Rbod[LEAD] & MASK_OUT_TWO) | (Lbod[LEAD] & MASK_OUT_TWO)).iterElemBack();
-            var RT2i = R.t2end() - 1;
-            var LT2i = L.t2end() - 1;
+            const bothLeadMask = toMask(Lbod[LEAD] & Rbod[LEAD]);
+            var RT2i = R.t2final();
+            var LT2i = L.t2final();
             var LT3i = L.t3start();
             var RT3i = R.t3start();
             var NT3i: usize = 0;
             while (unionT2iter.next()) |e2| {
-                if (NT2[e2] != 0) {
-                    const eLT2m = toMask(Lbod[LT2i]);
-                    const eRT2m = toMask(Rbod[RT2i]);
-                    var eNT2m = toMask(NT2[e2]);
-                    var unionT3Iter = eLT2m.setunion(eRT2m).iterElemBack();
+                if (bothLeadMask.isElem(e2)) {
+                    assert(NT2[e2] != 0);
+                    const LT2m = toMask(Lbod[LT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
+                    LT2i -= 1;
+                    RT2i -= 1;
+                    var NT2m = toMask(NT2[e2]);
+                    var unionT3Iter = LT2m.setunion(RT2m).iterElemBack();
                     while (unionT3Iter.next()) |e3| {
-                        if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
+                        if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
                             NT3[NT3i] = Rbod[RT3i] & Lbod[LT3i];
                             RT3i += 1;
                             LT3i += 1;
                             if (NT3[NT3i] == 0) {
-                                eNT2m.remove(codeunit(e3));
+                                NT2m.remove(codeunit(e3));
                             }
                             NT3i += 1;
-                        } else if (eLT2m.isElem(e3)) {
+                        } else if (LT2m.isElem(e3)) {
                             LT3i += 1;
                         } else {
-                            assert(eRT2m.isElem(e3));
+                            assert(RT2m.isElem(e3));
                             RT3i += 1;
                         }
                     }
-                    NT2[e2] = eNT2m.m;
+                    NT2[e2] = NT2m.m;
                     if (NT2[e2] == 0)
                         NLeadMask.remove(codeunit(e2));
-                }
-                // subtract T2 pointers
-                if (RLeadMask.isElem(e2))
+                } else if (RLeadMask.isElem(e2)) {
+                    RT3i += @popCount(Rbod[RT2i]);
                     RT2i -= 1;
-                if (LLeadMask.isElem(e2))
+                } else {
+                    assert(LLeadMask.isElem(e2));
+                    LT3i += @popCount(Lbod[LT2i]);
                     LT2i -= 1;
+                }
             } // sanity checks:
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
