@@ -248,10 +248,12 @@ fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void 
     // try as combined structure
     try verifySetUnion(str, l, r, alloc);
     try verifySetDifference(str, l, r, alloc);
+    try verifySetDifference(str, r, l, alloc);
     try verifySetIntersection(str, l, r, alloc);
     // try as separated structure
     try verifySetUnion(str, L.str, R.str, alloc);
     try verifySetDifference(str, L.str, R.str, alloc);
+    try verifySetDifference(str, R.str, L.str, alloc);
     try verifySetIntersection(str, L.str, R.str, alloc);
 }
 
@@ -285,6 +287,7 @@ test "LRstring set properties" {
     try withLRstringsVerifySetProperties(two_byte_feather, allocator);
     try withLRstringsVerifySetProperties(cjk_feather, allocator);
     try withLRstringsVerifySetProperties(cjk_chunk, allocator);
+    try withLRstringsVerifySetProperties(cjk_chunk4k, allocator);
     try withLRstringsVerifySetProperties(cjk_scatter, allocator);
     try withLRstringsVerifySetProperties(pua_A_chunk, allocator);
     try withLRstringsVerifySetProperties(pua_A_feather, allocator);
@@ -306,6 +309,7 @@ test "set properties of combined sets" {
     const allocator = std.testing.allocator;
     try verifySetsOfTwoLRstrings(greek, math, allocator);
     try verifySetsOfTwoLRstrings(deseret, greek, allocator);
+    try verifySetsOfTwoLRstrings(deseret, khitan_widechunk, allocator);
     try verifySetsOfTwoLRstrings(greek, deseret, allocator);
     try verifySetsOfTwoLRstrings(greek, cjk_scatter, allocator);
     try verifySetsOfTwoLRstrings(two_byte_chunk, khitan_widechunk, allocator);
@@ -313,7 +317,10 @@ test "set properties of combined sets" {
     try verifySetsOfTwoLRstrings(two_byte_feather, tangut_widechunk, allocator);
     try verifySetsOfTwoLRstrings(ascii, deseret, allocator);
     try verifySetsOfTwoLRstrings(cjk_scatter, math, allocator);
+    try verifySetsOfTwoLRstrings(math, cjk_chunk4k, allocator);
     try verifySetsOfTwoLRstrings(khitan_widechunk, tangut_widechunk, allocator);
+    try verifySetsOfTwoLRstrings(smp_chunk, pua_A_feather, allocator);
+    try verifySetsOfTwoLRstrings(pua_A_chunk, smp_chunk, allocator);
 }
 
 test "set union tests" {
@@ -328,6 +335,7 @@ test "set union tests" {
     try verifyLRSetUnion(two_byte_chunk, allocator);
     try verifyLRSetUnion(cjk_feather, allocator);
     try verifyLRSetUnion(cjk_chunk, allocator);
+    try verifyLRSetUnion(cjk_chunk4k, allocator);
     try verifyLRSetUnion(cjk_scatter, allocator);
     try verifyLRSetUnion(pua_A_feather, allocator);
     try verifyLRSetUnion(smp_chunk, allocator);
@@ -351,6 +359,7 @@ test "set difference tests" {
     try verifyLRSetDifference(two_byte_chunk, allocator);
     try verifyLRSetDifference(cjk_feather, allocator);
     try verifyLRSetDifference(cjk_chunk, allocator);
+    try verifyLRSetDifference(cjk_chunk4k, allocator);
     try verifyLRSetDifference(cjk_scatter, allocator);
     try verifyLRSetDifference(pua_A_feather, allocator);
     try verifyLRSetDifference(pua_A_chunk, allocator);
@@ -374,6 +383,7 @@ test "set intersection tests" {
     try verifyLRSetIntersection(two_byte_chunk, allocator);
     try verifyLRSetIntersection(cjk_feather, allocator);
     try verifyLRSetIntersection(cjk_chunk, allocator);
+    try verifyLRSetIntersection(cjk_chunk4k, allocator);
     try verifyLRSetIntersection(cjk_scatter, allocator);
     try verifyLRSetIntersection(pua_A_feather, allocator);
     try verifyLRSetIntersection(pua_A_chunk, allocator);
@@ -407,6 +417,7 @@ const two_byte_feather = data.two_byte_feather;
 const two_byte_chunk = data.two_byte_chunk;
 const cjk_feather = data.cjk_feather;
 const cjk_chunk = data.cjk_chunk;
+const cjk_chunk4k = data.cjk_chunk4k;
 const cjk_scatter = data.cjk_scatter;
 const pua_A_chunk = data.pua_A_chunk;
 const pua_A_feather = data.pua_A_feather;

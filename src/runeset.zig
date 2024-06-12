@@ -869,7 +869,7 @@ pub const RuneSet = struct {
         } else { // else R is only two byte or less, no action needed
             assert(R.t3slice() == null);
         }
-        // Once again, R 4 byte is irrelevant if L has none
+        // Once again, R 4-byte is irrelevant if L has none
         if (L.noFourBytes()) {
             header[LEAD] = LLeadMask.m;
             const T2c = compactSlice(&NT2);
@@ -925,17 +925,24 @@ pub const RuneSet = struct {
                 const RT1d = Rbod[LEAD] & MASK_IN_FOUR;
                 break :blk toMask(LT1d | RT1d).iterElemBack();
             };
-            while (unionLeadIter.next()) |e2| {
+            t2iter: while (unionLeadIter.next()) |e2| {
                 const inLT2 = LT1m.isElem(e2);
                 if (!inLT2) {
                     // must be in R, we skip
                     assert(RT1m.isElem(e2));
                     assert(Rbod[RT2i] != 0);
                     assert(NT2[e2] == 0);
-                    // move T3 index forward and T2 index back
-                    RT3i += @popCount(Rbod[RT2i]);
+                    // move T3 and T4 index forward and T2 index back
+                    const T3count = @popCount(Rbod[RT2i]);
                     RT2i -= 1;
-                    continue;
+                    assert(T3count > 0);
+                    for (0..T3count) |_| {
+                        const T4count = @popCount(Rbod[RT3i]);
+                        RT3i += 1;
+                        assert(T4count > 0);
+                        RT4i += T4count;
+                    }
+                    continue :t2iter;
                 }
                 const inRT2 = RT1m.isElem(e2);
                 if (inLT2 and inRT2) {
@@ -1182,8 +1189,8 @@ pub const RuneSet = struct {
             };
             while (unionT2iter.next()) |e2| {
                 if (LLeadMask.isElem(e2) and RLeadMask.isElem(e2)) {
-                    // Need to fast-forward if the block is empty:
                     var NT2m = toMask(NT2[e2]);
+                    // This block could already be empty:
                     if (NT2m.m != 0) {
                         const LT2m = toMask(Lbod[LT2i]);
                         const RT2m = toMask(Rbod[RT2i]);
@@ -1287,11 +1294,6 @@ pub const RuneSet = struct {
             } // end T2 union iteration
             // postconditions
             assert(NT4i == NT4.len);
-            if (RT3i != R.t3_3c_start()) {
-                std.debug.print("\nRT3i: expected {d}, got {d}\n", .{ R.t3_3c_start(), RT3i });
-                std.debug.print("RT4i: expected {d}, got {d}\n", .{ Rbod.len, RT4i });
-                std.debug.print("LT4i: expected {d}, got {d}\n", .{ Lbod.len, LT4i });
-            }
             assert(LT3i == L.t3_3c_start());
             assert(RT3i == R.t3_3c_start());
             assert(LT4i == Lbod.len);
