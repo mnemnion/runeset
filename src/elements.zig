@@ -266,6 +266,7 @@ test codeunit {
     try expectEqual(lead.nMultiBytes(), 2);
     const follow = codeunit(lambda[1]);
     try expectEqual(follow.kind, .follow);
+    try expectEqual(null, follow.nBytes());
     // mask property check
     for (0..256) |i| {
         const cu = codeunit(@truncate(i));

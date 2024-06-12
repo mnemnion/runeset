@@ -238,6 +238,23 @@ fn verifySetIntersection(str: []const u8, l: []const u8, r: []const u8, alloc: A
     try expect(setNoneL.equalTo(setNoneR));
 }
 
+fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void {
+    const str = try std.mem.concat(alloc, u8, &.{ L.str, R.str });
+    defer alloc.free(str);
+    const l = try std.mem.concat(alloc, u8, &.{ L.l, R.l });
+    defer alloc.free(l);
+    const r = try std.mem.concat(alloc, u8, &.{ L.r, R.r });
+    defer alloc.free(r);
+    // try as combined structure
+    try verifySetUnion(str, l, r, alloc);
+    try verifySetDifference(str, l, r, alloc);
+    try verifySetIntersection(str, l, r, alloc);
+    // try as separated structure
+    try verifySetUnion(str, L.str, R.str, alloc);
+    try verifySetDifference(str, L.str, R.str, alloc);
+    try verifySetIntersection(str, L.str, R.str, alloc);
+}
+
 //| Test Suite
 
 test "set properties" {
@@ -285,10 +302,14 @@ test "set from slice properties" {
     try withSliceVerifySetProperties(&strs, allocator);
 }
 
-test "detention for failing tests" {
+test "set properties of combined sets" {
     const allocator = std.testing.allocator;
-    // judas goat to use the allocator, so we can check regressions easily
-    try verifyLRSetUnion(ascii, allocator);
+    try verifySetsOfTwoLRstrings(greek, math, allocator);
+    try verifySetsOfTwoLRstrings(greek, cjk_scatter, allocator);
+    try verifySetsOfTwoLRstrings(two_byte_chunk, khitan_widechunk, allocator);
+    try verifySetsOfTwoLRstrings(cjk_feather, khitan_widechunk, allocator);
+    try verifySetsOfTwoLRstrings(two_byte_feather, tangut_widechunk, allocator);
+    try verifySetsOfTwoLRstrings(ascii, deseret, allocator);
 }
 
 test "set union tests" {
@@ -308,8 +329,8 @@ test "set union tests" {
     try verifyLRSetUnion(smp_chunk, allocator);
     try verifyLRSetUnion(tangut_chunk, allocator);
     try verifyLRSetUnion(tangut_widechunk, allocator);
-    try verifyLRSetUnion(khitan_widechunk, allocator);
     try verifyLRSetUnion(tangut_scatter, allocator);
+    try verifyLRSetUnion(khitan_widechunk, allocator);
     try verifyLRSetUnion(smp_scatter, allocator);
     try verifyLRSetUnion(pua_A_chunk, allocator);
 }
