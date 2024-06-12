@@ -588,6 +588,7 @@ pub const RuneSet = struct {
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
+            // If one set lacks four byte runes, this is easy:
             if (LT4i == 0) {
                 @memcpy(NT4, Rbod[RT4i..]);
             } else if (RT4i == 0) {
@@ -887,6 +888,8 @@ pub const RuneSet = struct {
             const T2end = 4 + T2c.len;
             const T3c = compactSlice(NT3);
             const T3end = T2end + T3c.len;
+            // which is the T4 offset:
+            header[T4_OFF] = T3end;
             const T4 = L.t4slice().?; // checked in prior if statement
             const setLen = T3end + T4.len;
             const Nbod = try allocator.alloc(u64, setLen);

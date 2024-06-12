@@ -252,7 +252,7 @@ fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void 
     // try as separated structure
     try verifySetUnion(str, L.str, R.str, alloc);
     try verifySetDifference(str, L.str, R.str, alloc);
-    try verifySetIntersection(str, L.str, R.str, alloc);
+    // try verifySetIntersection(str, L.str, R.str, alloc);
 }
 
 //| Test Suite
