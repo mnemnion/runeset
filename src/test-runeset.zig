@@ -312,6 +312,8 @@ test "set properties of combined sets" {
     try verifySetsOfTwoLRstrings(cjk_feather, khitan_widechunk, allocator);
     try verifySetsOfTwoLRstrings(two_byte_feather, tangut_widechunk, allocator);
     try verifySetsOfTwoLRstrings(ascii, deseret, allocator);
+    try verifySetsOfTwoLRstrings(cjk_scatter, math, allocator);
+    try verifySetsOfTwoLRstrings(khitan_widechunk, tangut_widechunk, allocator);
 }
 
 test "set union tests" {

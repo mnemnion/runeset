@@ -985,9 +985,11 @@ pub const RuneSet = struct {
                             NT3i += 1;
                             RT3i += 1;
                         } else if (RT2m.isElem(e3)) {
+                            RT4i += @popCount(Rbod[RT3i]);
                             RT3i += 1;
                         } else {
                             assert(LT2m.isElem(e3));
+                            NT4i += @popCount(NT3[NT3i]);
                             NT3i += 1;
                         }
                     }
@@ -997,7 +999,12 @@ pub const RuneSet = struct {
                     }
                 } else { // Must be L2, subtract mask from LT3i
                     assert(inLT2);
-                    NT3i += @popCount(NT2[e2]);
+                    const NT3count = @popCount(NT2[e2]);
+                    for (0..NT3count) |_| {
+                        const NT4count = @popCount(NT3[NT3i]);
+                        NT4i += NT4count;
+                        NT3i += 1;
+                    }
                 }
             } // Postconditions
             assert(NT4i == NT4.len);
