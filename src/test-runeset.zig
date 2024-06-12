@@ -305,6 +305,7 @@ test "set from slice properties" {
 test "set properties of combined sets" {
     const allocator = std.testing.allocator;
     try verifySetsOfTwoLRstrings(greek, math, allocator);
+    try verifySetsOfTwoLRstrings(greek, deseret, allocator);
     try verifySetsOfTwoLRstrings(greek, cjk_scatter, allocator);
     try verifySetsOfTwoLRstrings(two_byte_chunk, khitan_widechunk, allocator);
     try verifySetsOfTwoLRstrings(cjk_feather, khitan_widechunk, allocator);
