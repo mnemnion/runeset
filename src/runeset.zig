@@ -126,7 +126,7 @@ pub const RuneSet = struct {
             return self.body[T4_OFF];
     }
 
-    // Start of T4 region, *or* zero for no T4
+    /// Start of T4 region, *or* zero for no T4
     inline fn t4offset(self: RuneSet) usize {
         return self.body[T4_OFF];
     }
@@ -372,11 +372,11 @@ pub const RuneSet = struct {
         for (self.body, other.body, 0..) |l, r, i| {
             if (l != r) {
                 std.debug.print("at {d}, L != R:\n", .{i});
-                if (i >= LT4)
+                if (i >= LT4 and LT4 != 0)
                     std.debug.print("LT4 + {d}, ", .{i - LT4})
                 else if (i >= LT3)
                     std.debug.print("LT3 + {d}, ", .{i - LT3});
-                if (i >= RT4)
+                if (i >= RT4 and RT4 != 0)
                     std.debug.print("RT4 + {d}\n", .{i - RT4})
                 else if (i >= RT3)
                     std.debug.print("RT3 + {d}\n", .{i - RT3});
@@ -495,6 +495,7 @@ pub const RuneSet = struct {
             var LT2i = L.t2final();
             var RT2i = R.t2final();
             var unionT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
+            assert(unionT2iter.mask.m == (Lbod[LEAD] & MASK_OUT_TWO) | (Rbod[LEAD] & MASK_OUT_TWO));
             while (unionT2iter.next()) |e2| {
                 if (both_T1m.isElem(e2)) {
                     // Reverse-iterate the mask and test membership
@@ -544,6 +545,7 @@ pub const RuneSet = struct {
             } // Sanity checks:
             assert(LT2i == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
             assert(RT2i == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(NT3i == NT3.len);
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
         } // end T3 rank block
@@ -586,51 +588,91 @@ pub const RuneSet = struct {
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
-            var NT2iter = NT1d_m.iterElemBack();
-            while (NT2iter.next()) |e2| {
-                assert(NT2[e2] != 0);
-                if (LT1d_m.isElem(e2) and RT1d_m.isElem(e2)) {
-                    // Shared T2 region
-                    const LT2m = toMask(Lbod[LT2i]);
-                    const RT2m = toMask(Rbod[RT2i]);
-                    assert(NT2[e2] == Rbod[RT2i] | Lbod[LT2i]);
-                    LT2i -= 1;
-                    RT2i -= 1;
-                    const unionT2m = toMask(NT2[e2]);
-                    const bothT2m = LT2m.intersection(RT2m);
-                    assert(unionT2m.m == LT2m.m | RT2m.m);
-                    var unionT2iter = unionT2m.iterElemBack();
-                    while (unionT2iter.next()) |e3| {
-                        if (bothT2m.isElem(e3)) {
-                            // back iterate both T3 masks, forward
-                            const LT3m = toMask(Lbod[LT3i]);
-                            const RT3m = toMask(Rbod[RT3i]);
-                            const bothT3m = LT3m.intersection(RT3m);
-                            var unionT3iter = blk: {
-                                break :blk LT3m.setunion(RT3m).iterElements();
-                            };
-                            LT3i += 1;
-                            RT3i += 1;
-                            if (builtin.mode == .Debug) {
-                                assert(unionT3iter.mask.m == NT3[NT3i]);
-                                NT3i += 1;
-                            }
-                            while (unionT3iter.next()) |e4| {
-                                if (bothT3m.isElem(e4)) {
-                                    NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
-                                    LT4i += 1;
-                                    RT4i += 1;
-                                } else if (LT3m.isElem(e4)) {
+            if (LT4i == 0) {
+                @memcpy(NT4, Rbod[RT4i..]);
+            } else if (RT4i == 0) {
+                @memcpy(NT4, Lbod[LT4i..]);
+            } else {
+                var NT2iter = NT1d_m.iterElemBack();
+                while (NT2iter.next()) |e2| {
+                    assert(NT2[e2] != 0);
+                    if (LT1d_m.isElem(e2) and RT1d_m.isElem(e2)) {
+                        // Shared T2 region
+                        const LT2m = toMask(Lbod[LT2i]);
+                        const RT2m = toMask(Rbod[RT2i]);
+                        assert(NT2[e2] == Rbod[RT2i] | Lbod[LT2i]);
+                        LT2i -= 1;
+                        RT2i -= 1;
+                        const unionT2m = toMask(NT2[e2]);
+                        const bothT2m = LT2m.intersection(RT2m);
+                        assert(unionT2m.m == LT2m.m | RT2m.m);
+                        var unionT2iter = unionT2m.iterElemBack();
+                        while (unionT2iter.next()) |e3| {
+                            if (bothT2m.isElem(e3)) {
+                                // back iterate both T3 masks, forward
+                                const LT3m = toMask(Lbod[LT3i]);
+                                const RT3m = toMask(Rbod[RT3i]);
+                                const bothT3m = LT3m.intersection(RT3m);
+                                var unionT3iter = blk: {
+                                    break :blk LT3m.setunion(RT3m).iterElements();
+                                };
+                                LT3i += 1;
+                                RT3i += 1;
+                                if (builtin.mode == .Debug) {
+                                    assert(unionT3iter.mask.m == NT3[NT3i]);
+                                    NT3i += 1;
+                                }
+                                while (unionT3iter.next()) |e4| {
+                                    if (bothT3m.isElem(e4)) {
+                                        NT4[NT4i] = Lbod[LT4i] | Rbod[RT4i];
+                                        LT4i += 1;
+                                        RT4i += 1;
+                                    } else if (LT3m.isElem(e4)) {
+                                        NT4[NT4i] = Lbod[LT4i];
+                                        LT4i += 1;
+                                    } else {
+                                        assert(RT3m.isElem(e4));
+                                        NT4[NT4i] = Rbod[RT4i];
+                                        RT4i += 1;
+                                    }
+                                    NT4i += 1;
+                                }
+                            } else if (LT2m.isElem(e3)) {
+                                const T4count = @popCount(Lbod[LT3i]);
+                                assert(T4count > 0);
+                                assert(Lbod[LT3i] == NT3[NT3i]);
+                                LT3i += 1;
+                                if (builtin.mode == .Debug) {
+                                    NT3i += 1;
+                                }
+                                for (0..T4count) |_| {
                                     NT4[NT4i] = Lbod[LT4i];
+                                    NT4i += 1;
                                     LT4i += 1;
-                                } else {
-                                    assert(RT3m.isElem(e4));
+                                }
+                            } else {
+                                assert(RT2m.isElem(e3));
+                                const T4count = @popCount(Rbod[RT3i]);
+                                assert(T4count > 0);
+                                assert(Rbod[RT3i] == NT3[NT3i]);
+                                RT3i += 1;
+                                if (builtin.mode == .Debug) {
+                                    NT3i += 1;
+                                }
+                                for (0..T4count) |_| {
                                     NT4[NT4i] = Rbod[RT4i];
+                                    NT4i += 1;
                                     RT4i += 1;
                                 }
-                                NT4i += 1;
-                            }
-                        } else if (LT2m.isElem(e3)) {
+                            } // End T3 iteration
+                        } // End T2 iteration
+                    } else if (LT1d_m.isElem(e2)) {
+                        // popcount T2 mask
+                        assert(NT2[e2] == Lbod[LT2i]);
+                        const T3count = @popCount(Lbod[LT2i]);
+                        LT2i -= 1;
+                        assert(T3count > 0);
+                        for (0..T3count) |_| {
                             const T4count = @popCount(Lbod[LT3i]);
                             assert(T4count > 0);
                             assert(Lbod[LT3i] == NT3[NT3i]);
@@ -640,75 +682,41 @@ pub const RuneSet = struct {
                             }
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Lbod[LT4i];
-                                NT4i += 1;
                                 LT4i += 1;
+                                NT4i += 1;
                             }
-                        } else {
-                            assert(RT2m.isElem(e3));
+                        }
+                    } else {
+                        assert(RT1d_m.isElem(e2));
+                        assert(NT2[e2] == Rbod[RT2i]);
+                        const T3count = @popCount(Rbod[RT2i]);
+                        RT2i -= 1;
+                        assert(T3count > 0);
+                        for (0..T3count) |_| {
                             const T4count = @popCount(Rbod[RT3i]);
-                            assert(T4count > 0);
                             assert(Rbod[RT3i] == NT3[NT3i]);
                             RT3i += 1;
                             if (builtin.mode == .Debug) {
                                 NT3i += 1;
                             }
+                            assert(T4count > 0);
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Rbod[RT4i];
-                                NT4i += 1;
                                 RT4i += 1;
+                                NT4i += 1;
                             }
-                        } // End T3 iteration
-                    } // End T2 iteration
-                } else if (LT1d_m.isElem(e2)) {
-                    // popcount T2 mask
-                    assert(NT2[e2] == Lbod[LT2i]);
-                    const T3count = @popCount(Lbod[LT2i]);
-                    LT2i -= 1;
-                    assert(T3count > 0);
-                    for (0..T3count) |_| {
-                        const T4count = @popCount(Lbod[LT3i]);
-                        assert(T4count > 0);
-                        assert(Lbod[LT3i] == NT3[NT3i]);
-                        LT3i += 1;
-                        if (builtin.mode == .Debug) {
-                            NT3i += 1;
-                        }
-                        for (0..T4count) |_| {
-                            NT4[NT4i] = Lbod[LT4i];
-                            LT4i += 1;
-                            NT4i += 1;
-                        }
-                    }
-                } else {
-                    assert(RT1d_m.isElem(e2));
-                    assert(NT2[e2] == Rbod[RT2i]);
-                    const T3count = @popCount(Rbod[RT2i]);
-                    RT2i -= 1;
-                    assert(T3count > 0);
-                    for (0..T3count) |_| {
-                        const T4count = @popCount(Rbod[RT3i]);
-                        assert(Rbod[RT3i] == NT3[NT3i]);
-                        RT3i += 1;
-                        if (builtin.mode == .Debug) {
-                            NT3i += 1;
-                        }
-                        assert(T4count > 0);
-                        for (0..T4count) |_| {
-                            NT4[NT4i] = Rbod[RT4i];
-                            RT4i += 1;
-                            NT4i += 1;
                         }
                     }
                 }
+                // postconditions
+                assert(NT4i == NT4.len);
+                assert(LT2i == L.t2_4b_start() - 1);
+                assert(RT2i == R.t2_4b_start() - 1);
+                assert(RT3i == R.t3_3c_start());
+                assert(LT3i == L.t3_3c_start());
+                assert(LT4i == Lbod.len);
+                assert(RT4i == Rbod.len);
             }
-            // postconditions
-            assert(NT4i == NT4.len);
-            assert(LT2i == L.t2_4b_start() - 1);
-            assert(RT2i == R.t2_4b_start() - 1);
-            assert(RT3i == R.t3_3c_start());
-            assert(LT3i == L.t3_3c_start());
-            assert(LT4i == Lbod.len);
-            assert(RT4i == Rbod.len);
         } // end T4 rank
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
