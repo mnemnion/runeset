@@ -1093,6 +1093,10 @@ pub const RuneSet = struct {
         // Tier 3
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..]));
         defer allocator.free(NT3);
+        // We take a measure of NT4 now because we might remove
+        // NT2 bits and need to leave room for empty masks in NT3
+        // NT4 is, at most, as many words as the d block of NT3
+        const NT3_d_len = popCountSlice(NT2[THREE_MAX..]);
         {
             // We iterate back through both T2s to find surviving T3s
             var unionT2iter = toMask((Rbod[LEAD] & MASK_OUT_TWO) | (Lbod[LEAD] & MASK_OUT_TWO)).iterElemBack();
@@ -1161,8 +1165,6 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // Tier 4
-        // NT4 is, at most, as many words as the d block of NT3
-        const NT3_d_len = popCountSlice(NT2[THREE_MAX..]);
         const NT4len = popCountSlice(NT3[0..NT3_d_len]);
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
@@ -1227,7 +1229,7 @@ pub const RuneSet = struct {
                                     }
                                 }
                                 NT3[NT3i] = NT3m.m;
-                                if (NT3m.m == 0) {
+                                if (NT3m.m == 0 and NT2m.isElem(e3)) {
                                     NT2m.remove(codeunit(e3));
                                 }
                                 NT3i += 1;
@@ -1267,7 +1269,7 @@ pub const RuneSet = struct {
                     }
                     assert(@popCount(NT2[e2]) >= @popCount(NT2m.m));
                     NT2[e2] = NT2m.m;
-                    if (NT2[e2] == 0)
+                    if (NT2[e2] == 0 and NLeadMask.isElem(e2))
                         NLeadMask.remove(codeunit(e2));
                 } else if (LLeadMask.isElem(e2)) {
                     assert(NT2[e2] == 0);
@@ -1302,29 +1304,23 @@ pub const RuneSet = struct {
             assert(RT4i == Rbod.len);
             assert(RT2i == R.t2start() + @popCount(Rbod[LEAD] & MASK_OUT_FOUR) - 1);
             assert(LT2i == L.t2start() + @popCount(Lbod[LEAD] & MASK_OUT_FOUR) - 1);
+            assert(NT3.len >= popCountSlice(NT2[TWO_MAX..]));
         } // end T4 block
         header[LEAD] = NLeadMask.m;
+        // these two are only used in debug mode, hopefully elided in release
+        const popT3 = popCountSlice(NT2[TWO_MAX..]);
+        const popT4 = popCountSlice(NT2[THREE_MAX..]);
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
-        if (builtin.mode == .Debug) {
-            const T3count = popCountSlice(NT2[TWO_MAX..]);
-            if (T3count != T3c.len) {
-                std.debug.print("\nNT2 popcount: {d}, T3c.len: {d}\n", .{ T3count, T3c.len });
-                std.debug.print("NT3.len: {d}\n", .{NT3.len});
-            }
-            assert(T3c.len == popCountSlice(NT2[TWO_MAX..]));
-        }
+        assert(T3c.len == popT3);
         const T3end = T2end + T3c.len;
         const T4c = compactSlice(NT4);
         if (T4c.len != 0)
             header[T4_OFF] = T3end
         else
             header[T4_OFF] = 0;
-        if (builtin.mode == .Debug) {
-            const T3d_len = popCountSlice(NT2[THREE_MAX..]);
-            assert(T4c.len == popCountSlice(T3c[0..T3d_len]));
-        }
+        assert(T4c.len == popCountSlice(T3c[0..popT4]));
         const setLen = T3end + T4c.len;
         const Nbod = try allocator.alloc(u64, setLen);
         @memcpy(Nbod[0..4], &header);
