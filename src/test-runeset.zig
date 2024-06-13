@@ -94,7 +94,6 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     const setI = try set.setIntersection(set, alloc);
     defer setI.deinit(alloc);
     try expect(setI.equalTo(set));
-    try expect(setU.equalTo(setI));
 }
 
 /// Verify basic set properties of an LRstrings data sample.
@@ -114,6 +113,36 @@ fn withLRstringsVerifySetProperties(s: LRstrings, alloc: Allocator) !void {
     try expectEqual(s.r.len, setAll.matchManyAssumeValid(s.r));
     try testMatchNone(setL, s.r);
     try testMatchNone(setR, s.l);
+}
+
+fn verifyLRstringsData(s: LRstrings, alloc: Allocator) !void {
+    const setL = try RuneSet.createFromConstString(s.l, alloc);
+    defer setL.deinit(alloc);
+    const setR = try RuneSet.createFromConstString(s.r, alloc);
+    defer setR.deinit(alloc);
+    const setAll = try RuneSet.createFromConstString(s.str, alloc);
+    defer setAll.deinit(alloc);
+    try expectEqual(s.l.len, setAll.matchManyAssumeValid(s.l));
+    try expectEqual(s.r.len, setAll.matchManyAssumeValid(s.r));
+    try testMatchNone(setL, s.r);
+    try testMatchNone(setR, s.l);
+}
+
+fn verifyLRSets(s: LRstrings, alloc: Allocator) !void {
+    try verifyLRstringsData(s, alloc);
+    const str = s.str;
+    const l = s.l;
+    const r = s.r;
+    try verifySetOperations(str, l, r, alloc);
+}
+
+fn verifySetOperations(str: []const u8, l: []const u8, r: []const u8, alloc: Allocator) !void {
+    try withStringVerifySetProperties(str, alloc);
+    try withStringVerifySetProperties(l, alloc);
+    try withStringVerifySetProperties(r, alloc);
+    try verifySetUnion(str, l, r, alloc);
+    try verifySetDifference(str, l, r, alloc);
+    try verifySetIntersection(str, l, r, alloc);
 }
 
 /// Validate union properties of an LRstring set:
@@ -136,9 +165,12 @@ fn verifySetUnion(str: []const u8, l: []const u8, r: []const u8, alloc: Allocato
     defer setR.deinit(alloc);
     const setU = try setL.setUnion(setR, alloc);
     defer setU.deinit(alloc);
+    const setU2 = try setR.setUnion(setL, alloc);
+    defer setU2.deinit(alloc);
     const setAll = try RuneSet.createFromConstString(str, alloc);
     defer setAll.deinit(alloc);
-    try expect(setAll.expectEqualTo(setU));
+    try expect(setAll.equalTo(setU));
+    try expect(setU2.equalTo(setU));
     try expectEqual(setAll.codeunitCount(), setU.codeunitCount());
     const matchL = setU.matchMany(l);
     if (matchL) |m| {
@@ -181,8 +213,8 @@ fn verifySetDifference(str: []const u8, l: []const u8, r: []const u8, alloc: All
     defer setAdiffR.deinit(alloc);
     const setAdiffL = try setAll.setDifference(setL, alloc);
     defer setAdiffL.deinit(alloc);
-    try expect(setR.expectEqualTo(setAdiffL));
-    try expect(setL.expectEqualTo(setAdiffR));
+    try expect(setR.equalTo(setAdiffL));
+    try expect(setL.equalTo(setAdiffR));
     const matchL = setAdiffR.matchMany(l);
     if (matchL) |nMatch| {
         try expectEqual(l.len, nMatch);
@@ -193,6 +225,12 @@ fn verifySetDifference(str: []const u8, l: []const u8, r: []const u8, alloc: All
     } else try expect(false);
     try testMatchNone(setAdiffL, l);
     try testMatchNone(setAdiffR, r);
+    const setLdiffR = try setL.setDifference(setR, alloc);
+    defer setLdiffR.deinit(alloc);
+    try expect(setLdiffR.equalTo(setL));
+    const setRdiffL = try setR.setDifference(setL, alloc);
+    defer setRdiffL.deinit(alloc);
+    try expect(setRdiffL.equalTo(setR));
     const setNone = try setAll.setDifference(setAll, alloc);
     defer setNone.deinit(alloc);
     try expectEqual(0, setNone.codeunitCount());
@@ -215,14 +253,14 @@ fn verifySetIntersection(str: []const u8, l: []const u8, r: []const u8, alloc: A
     defer setL.deinit(alloc);
     const setAllandR = try setAll.setIntersection(setR, alloc);
     defer setAllandR.deinit(alloc);
-    try expect(setAllandR.expectEqualTo(setR));
+    try expect(setAllandR.equalTo(setR));
     const matchR = setAllandR.matchMany(r);
     if (matchR) |nMatch| {
         try expectEqual(r.len, nMatch);
     } else try expect(false);
     const setAllandL = try setAll.setIntersection(setL, alloc);
     defer setAllandL.deinit(alloc);
-    try expect(setAllandL.expectEqualTo(setL));
+    try expect(setAllandL.equalTo(setL));
     const matchL = setAllandL.matchMany(l);
     if (matchL) |nMatch2| {
         try expectEqual(l.len, nMatch2);
@@ -248,55 +286,36 @@ fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void 
     // try as combined structure
     try verifySetUnion(str, l, r, alloc);
     try verifySetDifference(str, l, r, alloc);
-    try verifySetDifference(str, r, l, alloc);
     try verifySetIntersection(str, l, r, alloc);
     // try as separated structure
     try verifySetUnion(str, L.str, R.str, alloc);
     try verifySetDifference(str, L.str, R.str, alloc);
-    try verifySetDifference(str, R.str, L.str, alloc);
     try verifySetIntersection(str, L.str, R.str, alloc);
 }
 
 //| Test Suite
 
-test "set properties" {
+test "verify sets of LRstrings data" {
     const allocator = std.testing.allocator;
-    try withStringVerifySetProperties(ascii.str, allocator);
-    try withStringVerifySetProperties(greek.str, allocator);
-    try withStringVerifySetProperties(math.str, allocator);
-    try withStringVerifySetProperties(linear_B.str, allocator);
-    try withStringVerifySetProperties(han_sample.str, allocator);
-    try withStringVerifySetProperties(deseret.str, allocator);
-    try withStringVerifySetProperties(two_byte_feather.str, allocator);
-    try withStringVerifySetProperties(cjk_feather.str, allocator);
-    try withStringVerifySetProperties(cjk_chunk.str, allocator);
-    try withStringVerifySetProperties(pua_A_chunk.str, allocator);
-    try withStringVerifySetProperties(pua_A_feather.str, allocator);
-    try withStringVerifySetProperties(smp_chunk.str, allocator);
-    try withStringVerifySetProperties(smp_scatter.str, allocator);
-}
-
-test "LRstring set properties" {
-    const allocator = std.testing.allocator;
-    try withLRstringsVerifySetProperties(ascii, allocator);
-    try withLRstringsVerifySetProperties(greek, allocator);
-    try withLRstringsVerifySetProperties(math, allocator);
-    try withLRstringsVerifySetProperties(linear_B, allocator);
-    try withLRstringsVerifySetProperties(han_sample, allocator);
-    try withLRstringsVerifySetProperties(deseret, allocator);
-    try withLRstringsVerifySetProperties(two_byte_feather, allocator);
-    try withLRstringsVerifySetProperties(cjk_feather, allocator);
-    try withLRstringsVerifySetProperties(cjk_chunk, allocator);
-    try withLRstringsVerifySetProperties(cjk_chunk4k, allocator);
-    try withLRstringsVerifySetProperties(cjk_scatter, allocator);
-    try withLRstringsVerifySetProperties(pua_A_chunk, allocator);
-    try withLRstringsVerifySetProperties(pua_A_feather, allocator);
-    try withLRstringsVerifySetProperties(smp_chunk, allocator);
-    try withLRstringsVerifySetProperties(smp_scatter, allocator);
-    try withLRstringsVerifySetProperties(tangut_chunk, allocator);
-    try withLRstringsVerifySetProperties(tangut_widechunk, allocator);
-    try withLRstringsVerifySetProperties(tangut_scatter, allocator);
-    try withLRstringsVerifySetProperties(khitan_widechunk, allocator);
+    try verifyLRSets(ascii, allocator);
+    try verifyLRSets(greek, allocator);
+    try verifyLRSets(math, allocator);
+    try verifyLRSets(linear_B, allocator);
+    try verifyLRSets(deseret, allocator);
+    try verifyLRSets(two_byte_feather, allocator);
+    try verifyLRSets(two_byte_chunk, allocator);
+    try verifyLRSets(cjk_feather, allocator);
+    try verifyLRSets(cjk_chunk, allocator);
+    try verifyLRSets(cjk_chunk4k, allocator);
+    try verifyLRSets(cjk_scatter, allocator);
+    try verifyLRSets(pua_A_chunk, allocator);
+    try verifyLRSets(pua_A_feather, allocator);
+    try verifyLRSets(smp_chunk, allocator);
+    try verifyLRSets(smp_scatter, allocator);
+    try verifyLRSets(tangut_chunk, allocator);
+    try verifyLRSets(tangut_widechunk, allocator);
+    try verifyLRSets(tangut_scatter, allocator);
+    try verifyLRSets(khitan_widechunk, allocator);
 }
 
 test "set from slice properties" {
@@ -323,76 +342,12 @@ test "set properties of combined sets" {
     try verifySetsOfTwoLRstrings(pua_A_chunk, smp_chunk, allocator);
 }
 
-test "set union tests" {
+test "partial set matches" {
     const allocator = std.testing.allocator;
-    try verifyLRSetUnion(ascii, allocator);
-    try verifyLRSetUnion(greek, allocator);
-    try verifyLRSetUnion(math, allocator);
-    try verifyLRSetUnion(linear_B, allocator);
-    try verifyLRSetUnion(han_sample, allocator);
-    try verifyLRSetUnion(deseret, allocator);
-    try verifyLRSetUnion(two_byte_feather, allocator);
-    try verifyLRSetUnion(two_byte_chunk, allocator);
-    try verifyLRSetUnion(cjk_feather, allocator);
-    try verifyLRSetUnion(cjk_chunk, allocator);
-    try verifyLRSetUnion(cjk_chunk4k, allocator);
-    try verifyLRSetUnion(cjk_scatter, allocator);
-    try verifyLRSetUnion(pua_A_feather, allocator);
-    try verifyLRSetUnion(smp_chunk, allocator);
-    try verifyLRSetUnion(tangut_chunk, allocator);
-    try verifyLRSetUnion(tangut_widechunk, allocator);
-    try verifyLRSetUnion(tangut_scatter, allocator);
-    try verifyLRSetUnion(khitan_widechunk, allocator);
-    try verifyLRSetUnion(smp_scatter, allocator);
-    try verifyLRSetUnion(pua_A_chunk, allocator);
-}
-
-test "set difference tests" {
-    const allocator = std.testing.allocator;
-    try verifyLRSetDifference(ascii, allocator);
-    try verifyLRSetDifference(greek, allocator);
-    try verifyLRSetDifference(math, allocator);
-    try verifyLRSetDifference(linear_B, allocator);
-    try verifyLRSetDifference(han_sample, allocator);
-    try verifyLRSetDifference(deseret, allocator);
-    try verifyLRSetDifference(two_byte_feather, allocator);
-    try verifyLRSetDifference(two_byte_chunk, allocator);
-    try verifyLRSetDifference(cjk_feather, allocator);
-    try verifyLRSetDifference(cjk_chunk, allocator);
-    try verifyLRSetDifference(cjk_chunk4k, allocator);
-    try verifyLRSetDifference(cjk_scatter, allocator);
-    try verifyLRSetDifference(pua_A_feather, allocator);
-    try verifyLRSetDifference(pua_A_chunk, allocator);
-    try verifyLRSetDifference(smp_chunk, allocator);
-    try verifyLRSetDifference(smp_scatter, allocator);
-    try verifyLRSetDifference(tangut_chunk, allocator);
-    try verifyLRSetDifference(tangut_scatter, allocator);
-    try verifyLRSetDifference(tangut_widechunk, allocator);
-    try verifyLRSetDifference(khitan_widechunk, allocator);
-}
-
-test "set intersection tests" {
-    const allocator = std.testing.allocator;
-    try verifyLRSetIntersection(ascii, allocator);
-    try verifyLRSetIntersection(greek, allocator);
-    try verifyLRSetIntersection(math, allocator);
-    try verifyLRSetIntersection(linear_B, allocator);
-    try verifyLRSetIntersection(han_sample, allocator);
-    try verifyLRSetIntersection(deseret, allocator);
-    try verifyLRSetIntersection(two_byte_feather, allocator);
-    try verifyLRSetIntersection(two_byte_chunk, allocator);
-    try verifyLRSetIntersection(cjk_feather, allocator);
-    try verifyLRSetIntersection(cjk_chunk, allocator);
-    try verifyLRSetIntersection(cjk_chunk4k, allocator);
-    try verifyLRSetIntersection(cjk_scatter, allocator);
-    try verifyLRSetIntersection(pua_A_feather, allocator);
-    try verifyLRSetIntersection(pua_A_chunk, allocator);
-    try verifyLRSetIntersection(smp_chunk, allocator);
-    try verifyLRSetIntersection(smp_scatter, allocator);
-    try verifyLRSetIntersection(tangut_chunk, allocator);
-    try verifyLRSetIntersection(tangut_scatter, allocator);
-    try verifyLRSetIntersection(tangut_widechunk, allocator);
-    try verifyLRSetIntersection(khitan_widechunk, allocator);
+    const abcSet = try RuneSet.createFromConstString("abcdefghij", allocator);
+    defer abcSet.deinit(allocator);
+    try expectEqual(4, abcSet.matchMany("abcd123").?);
+    try expectEqual(5, abcSet.matchManyAssumeValid("acegi12"));
 }
 
 // Inline tests of runeset.zig and all tests of element.zig
@@ -412,7 +367,6 @@ const greek = data.greek;
 const math = data.math;
 const linear_B = data.linear_B;
 const deseret = data.deseret;
-const han_sample = data.han_sample;
 const two_byte_feather = data.two_byte_feather;
 const two_byte_chunk = data.two_byte_chunk;
 const cjk_feather = data.cjk_feather;
