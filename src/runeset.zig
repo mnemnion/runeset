@@ -1045,9 +1045,6 @@ pub const RuneSet = struct {
     /// Return intersection of receiver with first argument.
     /// Calling context owns memory.
     pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
-        // Similar to setDifference.  A bit simpler because we can
-        // remove bits as we find them (but still have to go back
-        // and clear more bits when we do each tier)
         const Lbod = L.body;
         const Rbod = R.body;
         var header: [4]u64 = undefined;
@@ -1130,6 +1127,7 @@ pub const RuneSet = struct {
                             RT3i += 1;
                         }
                     }
+                    assert(@popCount(NT2[e2]) >= @popCount(NT2m.m));
                     NT2[e2] = NT2m.m;
                     if (NT2[e2] == 0)
                         NLeadMask.remove(codeunit(e2));
@@ -1146,12 +1144,15 @@ pub const RuneSet = struct {
             assert(RT3i == R.t3end());
             assert(LT2i == 3 + @popCount(Lbod[LEAD] & MASK_IN_TWO));
             assert(RT2i == 3 + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            // we should only remove bits from NT2:
+            assert(NT3.len >= popCountSlice(NT2[TWO_MAX..]));
         }
         if (NLeadMask.m & MASK_IN_FOUR == 0) {
             header[LEAD] = NLeadMask.m;
             const T2c = compactSlice(&NT2);
             const T2end = 4 + T2c.len;
             const T3c = compactSlice(NT3);
+            assert(T3c.len == popCountSlice(NT2[TWO_MAX..]));
             const setLen = T2end + T3c.len;
             const Nbod = try allocator.alloc(u64, setLen);
             @memcpy(Nbod[0..4], &header);
@@ -1239,9 +1240,6 @@ pub const RuneSet = struct {
                                 RT3i += 1;
                             }
                         } // end T3 union iteration
-                        NT2[e2] = NT2m.m;
-                        if (NT2[e2] == 0)
-                            NLeadMask.remove(codeunit(e2));
                     } else { // NT2 is zero
                         assert(NT2[e2] == 0);
                         {
@@ -1267,6 +1265,10 @@ pub const RuneSet = struct {
                             }
                         }
                     }
+                    assert(@popCount(NT2[e2]) >= @popCount(NT2m.m));
+                    NT2[e2] = NT2m.m;
+                    if (NT2[e2] == 0)
+                        NLeadMask.remove(codeunit(e2));
                 } else if (LLeadMask.isElem(e2)) {
                     assert(NT2[e2] == 0);
                     const T3count = @popCount(Lbod[LT2i]);
@@ -1305,7 +1307,14 @@ pub const RuneSet = struct {
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
-        assert(T3c.len == popCountSlice(NT2[TWO_MAX..]));
+        if (builtin.mode == .Debug) {
+            const T3count = popCountSlice(NT2[TWO_MAX..]);
+            if (T3count != T3c.len) {
+                std.debug.print("\nNT2 popcount: {d}, T3c.len: {d}\n", .{ T3count, T3c.len });
+                std.debug.print("NT3.len: {d}\n", .{NT3.len});
+            }
+            assert(T3c.len == popCountSlice(NT2[TWO_MAX..]));
+        }
         const T3end = T2end + T3c.len;
         const T4c = compactSlice(NT4);
         if (T4c.len != 0)
