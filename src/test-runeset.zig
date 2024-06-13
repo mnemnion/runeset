@@ -265,15 +265,18 @@ fn verifySetIntersection(str: []const u8, l: []const u8, r: []const u8, alloc: A
     if (matchL) |nMatch2| {
         try expectEqual(l.len, nMatch2);
     } else try expect(false);
-    const setNoneL = try setAllandL.setIntersection(setAllandR, alloc);
+    const setNoneL = try setL.setIntersection(setR, alloc);
     defer setNoneL.deinit(alloc);
     try expectEqual(0, setNoneL.codeunitCount());
     try expectEqual(4, setNoneL.body.len);
-    const setNoneR = try setAllandR.setIntersection(setAllandL, alloc);
+    const setNoneR = try setR.setIntersection(setL, alloc);
     defer setNoneR.deinit(alloc);
     try expectEqual(0, setNoneR.codeunitCount());
     try expectEqual(4, setNoneR.body.len);
     try expect(setNoneL.equalTo(setNoneR));
+    const setLandAll = try setL.setIntersection(setAll, alloc);
+    defer setLandAll.deinit(alloc);
+    try expect(setAllandL.equalTo(setLandAll));
 }
 
 fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void {
