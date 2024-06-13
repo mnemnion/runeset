@@ -316,6 +316,7 @@ test "verify sets of LRstrings data" {
     try verifyLRSets(tangut_widechunk, allocator);
     try verifyLRSets(tangut_scatter, allocator);
     try verifyLRSets(khitan_widechunk, allocator);
+    try verifyLRSets(rand1, allocator);
 }
 
 test "set from slice properties" {
@@ -381,6 +382,7 @@ const tangut_chunk = data.tangut_chunk;
 const tangut_scatter = data.tangut_scatter;
 const tangut_widechunk = data.tangut_widechunk;
 const khitan_widechunk = data.khitan_widechunk;
+const rand1 = data.rand1;
 
 test "data integrity" {
     try std.testing.expectEqualStrings(pua_A_chunk.str, pua_A_feather.str);
