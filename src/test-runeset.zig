@@ -240,6 +240,11 @@ fn verifySetDifference(str: []const u8, l: []const u8, r: []const u8, alloc: All
     try expectEqual(0, setLdiffAll.codeunitCount());
     try expectEqual(4, setLdiffAll.body.len);
     try expect(setNone.equalTo(setLdiffAll));
+    const setRdiffAll = try setR.setDifference(setAll, alloc);
+    defer setRdiffAll.deinit(alloc);
+    try expectEqual(0, setRdiffAll.codeunitCount());
+    try expectEqual(4, setRdiffAll.body.len);
+    try expect(setNone.equalTo(setRdiffAll));
 }
 
 fn verifyLRSetIntersection(LR: LRstrings, alloc: Allocator) !void {
@@ -349,6 +354,7 @@ test "set properties of combined sets" {
     try verifySetsOfTwoLRstrings(khitan_widechunk, tangut_widechunk, allocator);
     try verifySetsOfTwoLRstrings(smp_chunk, pua_A_feather, allocator);
     try verifySetsOfTwoLRstrings(pua_A_chunk, smp_chunk, allocator);
+    try verifySetsOfTwoLRstrings(smp_chunk, cjk_chunk4k, allocator);
 }
 
 test "partial set matches" {
