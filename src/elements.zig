@@ -374,6 +374,12 @@ test "forward iter" {
     try expectEqual(64, count);
 }
 
+test "invalid states" {
+    var zeroMask = Mask.toMask(0);
+    try expectEqual(null, zeroMask.higherThan(codeunit('1')));
+    try expectEqual(null, zeroMask.lowerThan(codeunit('a')));
+}
+
 // test "bleh" {
 //     const C = split('C');
 //     std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ C.body, C.hiMask() });
