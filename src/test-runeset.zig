@@ -235,6 +235,11 @@ fn verifySetDifference(str: []const u8, l: []const u8, r: []const u8, alloc: All
     defer setNone.deinit(alloc);
     try expectEqual(0, setNone.codeunitCount());
     try expectEqual(4, setNone.body.len);
+    const setLdiffAll = try setL.setDifference(setAll, alloc);
+    defer setLdiffAll.deinit(alloc);
+    try expectEqual(0, setLdiffAll.codeunitCount());
+    try expectEqual(4, setLdiffAll.body.len);
+    try expect(setNone.equalTo(setLdiffAll));
 }
 
 fn verifyLRSetIntersection(LR: LRstrings, alloc: Allocator) !void {

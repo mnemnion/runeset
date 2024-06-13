@@ -743,6 +743,7 @@ pub const RuneSet = struct {
         // We always assign this to header[LEAD] before returning
         var LLeadMask = toMask(Lbod[LEAD]);
         header[T4_OFF] = 0;
+        // ASCII check:
         if (Lbod[LEAD] == 0) {
             header[LEAD] = 0;
             const Nbod = try allocator.alloc(u64, 4);
@@ -753,20 +754,24 @@ pub const RuneSet = struct {
         // We blow up LT2:
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         L.spreadT2(&NT2);
-        // Take an intersection of LEADS
-        const commonLead = toMask(Rbod[LEAD] & Lbod[LEAD]);
+        // Take a union of LEADS
         {
+            const unionLead = toMask(Rbod[LEAD] | Lbod[LEAD]);
+            const L1m = toMask(Lbod[LEAD]);
+            const R1m = toMask(Rbod[LEAD]);
             // Iterate and diff
             var RT2i = R.t2start();
-            var T2iter = commonLead.iterElements();
+            var T2iter = unionLead.iterElements();
             while (T2iter.next()) |e| {
                 if (e >= TWO_MAX) break;
-                assert(NT2[e] != 0);
-                NT2[e] &= ~Rbod[RT2i];
-                RT2i += 1;
-                // If this clears the mask, remove the LEAD bit
-                if (NT2[e] == 0)
-                    LLeadMask.remove(codeunit(e));
+                // assert(NT2[e] != 0);
+                if (R1m.isElem(e)) {
+                    NT2[e] &= ~Rbod[RT2i];
+                    RT2i += 1;
+                    // If this clears the mask, remove the LEAD bit
+                    if (NT2[e] == 0 and L1m.isElem(e))
+                        LLeadMask.remove(codeunit(e));
+                }
             }
         } // Only L matters here: can't remove what you don't have
         if (L.noThreeBytes()) {
