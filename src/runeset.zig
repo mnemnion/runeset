@@ -909,124 +909,120 @@ pub const RuneSet = struct {
         const NT4 = try allocator.alloc(u64, LT4.len);
         defer allocator.free(NT4);
         @memcpy(NT4, LT4);
-        if (!R.noFourBytes()) {
-            // We iterate backward through NT2, and each mask thereof,
-            // allowing forward iteration through T3 and T4.
-            // Track ownership of T2 bits on each side:
-            const LT1m = toMask(Lbod[LEAD]);
-            const RT1m = toMask(Rbod[LEAD]);
-            // Track progress forward through T3
-            // The d region of NT3 is identical to LT3
-            var NT3i: usize = 0;
-            var RT3i = R.t3start();
-            // Similarly, d region of NT2 is still identical to LT2
-            var RT2i = R.t2final();
-            // track T4 progress forward
-            var NT4i: usize = 0;
-            var RT4i = Rbod[T4_OFF];
-            // Backward iterate T2, d region only
-            var unionLeadIter = blk: {
-                const LT1d = Lbod[LEAD] & MASK_IN_FOUR;
-                const RT1d = Rbod[LEAD] & MASK_IN_FOUR;
-                break :blk toMask(LT1d | RT1d).iterElemBack();
-            };
-            t2iter: while (unionLeadIter.next()) |e2| {
-                const inLT2 = LT1m.isElem(e2);
-                if (!inLT2) {
-                    // must be in R, we skip
-                    assert(RT1m.isElem(e2));
-                    assert(Rbod[RT2i] != 0);
-                    assert(NT2[e2] == 0);
-                    // move T3 and T4 index forward and T2 index back
-                    const T3count = @popCount(Rbod[RT2i]);
-                    RT2i -= 1;
-                    assert(T3count > 0);
-                    for (0..T3count) |_| {
-                        const T4count = @popCount(Rbod[RT3i]);
-                        RT3i += 1;
-                        assert(T4count > 0);
-                        RT4i += T4count;
-                    }
-                    continue :t2iter;
+        // We iterate backward through NT2, and each mask thereof,
+        // allowing forward iteration through T3 and T4.
+        // Track ownership of T2 bits on each side:
+        const LT1m = toMask(Lbod[LEAD]);
+        const RT1m = toMask(Rbod[LEAD]);
+        // Track progress forward through T3
+        // The d region of NT3 is identical to LT3
+        var NT3i: usize = 0;
+        var RT3i = R.t3start();
+        // Similarly, d region of NT2 is still identical to LT2
+        var RT2i = R.t2final();
+        // track T4 progress forward
+        var NT4i: usize = 0;
+        var RT4i = Rbod[T4_OFF];
+        // Backward iterate T2, d region only
+        var unionLeadIter = blk: {
+            const LT1d = Lbod[LEAD] & MASK_IN_FOUR;
+            const RT1d = Rbod[LEAD] & MASK_IN_FOUR;
+            break :blk toMask(LT1d | RT1d).iterElemBack();
+        };
+        t2iter: while (unionLeadIter.next()) |e2| {
+            const inLT2 = LT1m.isElem(e2);
+            if (!inLT2) {
+                // must be in R, we skip
+                assert(RT1m.isElem(e2));
+                assert(Rbod[RT2i] != 0);
+                assert(NT2[e2] == 0);
+                // move T3 and T4 index forward and T2 index back
+                const T3count = @popCount(Rbod[RT2i]);
+                RT2i -= 1;
+                assert(T3count > 0);
+                for (0..T3count) |_| {
+                    const T4count = @popCount(Rbod[RT3i]);
+                    RT3i += 1;
+                    assert(T4count > 0);
+                    RT4i += T4count;
                 }
-                const inRT2 = RT1m.isElem(e2);
-                if (inLT2 and inRT2) {
-                    // Find T3 overlaps and apply T4 accordingly
-                    assert(NT2[e2] != 0);
-                    const LT2m = toMask(NT2[e2]);
-                    assert(Rbod[RT2i] != 0);
-                    const RT2m = toMask(Rbod[RT2i]);
-                    // We're done with RT2i, decrement
-                    RT2i -= 1;
-                    // iterate the union of this T2 word backward
-                    var unionT2iter = toMask(LT2m.m | RT2m.m).iterElemBack();
-                    while (unionT2iter.next()) |e3| {
-                        if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
-                            // We iterate forward through T3 and T4.
-                            // Intersections are diffed,
-                            // zeroed words remove that NT3 bit.
-                            assert(NT3[NT3i] != 0); // may not be true later!
-                            const eLT3m = toMask(NT3[NT3i]);
-                            assert(Rbod[RT3i] != 0);
-                            const eRT3m = toMask(Rbod[RT3i]);
-                            var unionT3iter = toMask(eLT3m.m | eRT3m.m).iterElements();
-                            while (unionT3iter.next()) |e4| {
-                                if (eLT3m.isElem(e4) and eRT3m.isElem(e4)) {
-                                    NT4[NT4i] &= ~Rbod[RT4i];
-                                    // null check for T3 mask out
-                                    if (NT4[NT4i] == 0) {
-                                        var NT3m = toMask(NT3[NT3i]);
-                                        NT3m.remove(codeunit(e4));
-                                        NT3[NT3i] = NT3m.m;
-                                    } // NT3[NT3i] checked after unionT3iter while loop
-                                    NT4i += 1;
-                                    RT4i += 1;
-                                } else if (eRT3m.isElem(e4)) {
-                                    RT4i += 1;
-                                } else {
-                                    assert(eLT3m.isElem(e4));
-                                    NT4i += 1;
-                                }
+                continue :t2iter;
+            }
+            const inRT2 = RT1m.isElem(e2);
+            if (inLT2 and inRT2) {
+                // Find T3 overlaps and apply T4 accordingly
+                assert(NT2[e2] != 0);
+                const LT2m = toMask(NT2[e2]);
+                assert(Rbod[RT2i] != 0);
+                const RT2m = toMask(Rbod[RT2i]);
+                // We're done with RT2i, decrement
+                RT2i -= 1;
+                // iterate the union of this T2 word backward
+                var unionT2iter = toMask(LT2m.m | RT2m.m).iterElemBack();
+                while (unionT2iter.next()) |e3| {
+                    if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
+                        // We iterate forward through T3 and T4.
+                        // Intersections are diffed,
+                        // zeroed words remove that NT3 bit.
+                        assert(NT3[NT3i] != 0); // may not be true later!
+                        const eLT3m = toMask(NT3[NT3i]);
+                        assert(Rbod[RT3i] != 0);
+                        const eRT3m = toMask(Rbod[RT3i]);
+                        var unionT3iter = toMask(eLT3m.m | eRT3m.m).iterElements();
+                        while (unionT3iter.next()) |e4| {
+                            if (eLT3m.isElem(e4) and eRT3m.isElem(e4)) {
+                                NT4[NT4i] &= ~Rbod[RT4i];
+                                // null check for T3 mask out
+                                if (NT4[NT4i] == 0) {
+                                    var NT3m = toMask(NT3[NT3i]);
+                                    NT3m.remove(codeunit(e4));
+                                    NT3[NT3i] = NT3m.m;
+                                } // NT3[NT3i] checked after unionT3iter while loop
+                                NT4i += 1;
+                                RT4i += 1;
+                            } else if (eRT3m.isElem(e4)) {
+                                RT4i += 1;
+                            } else {
+                                assert(eLT3m.isElem(e4));
+                                NT4i += 1;
                             }
-                            if (NT3[NT3i] == 0) {
-                                var N3m = toMask(NT2[e2]);
-                                N3m.remove(codeunit(e3));
-                                NT2[e2] = N3m.m;
-                            } // NT2[e2] checked after unionT2iter while loop
-                            // finished iterating T3 mask
-                            NT3i += 1;
-                            RT3i += 1;
-                        } else if (RT2m.isElem(e3)) {
-                            RT4i += @popCount(Rbod[RT3i]);
-                            RT3i += 1;
-                        } else {
-                            assert(LT2m.isElem(e3));
-                            NT4i += @popCount(NT3[NT3i]);
-                            NT3i += 1;
                         }
-                    }
-                    // Check for emptied NT2 mask
-                    if (NT2[e2] == 0) {
-                        LLeadMask.remove(codeunit(e2));
-                    }
-                } else { // Must be L2, subtract mask from LT3i
-                    assert(inLT2);
-                    const NT3count = @popCount(NT2[e2]);
-                    for (0..NT3count) |_| {
-                        const NT4count = @popCount(NT3[NT3i]);
-                        NT4i += NT4count;
+                        if (NT3[NT3i] == 0) {
+                            var N3m = toMask(NT2[e2]);
+                            N3m.remove(codeunit(e3));
+                            NT2[e2] = N3m.m;
+                        } // NT2[e2] checked after unionT2iter while loop
+                        // finished iterating T3 mask
+                        NT3i += 1;
+                        RT3i += 1;
+                    } else if (RT2m.isElem(e3)) {
+                        RT4i += @popCount(Rbod[RT3i]);
+                        RT3i += 1;
+                    } else {
+                        assert(LT2m.isElem(e3));
+                        NT4i += @popCount(NT3[NT3i]);
                         NT3i += 1;
                     }
                 }
-            } // Postconditions
-            assert(NT4i == NT4.len);
-            // No post for NT3i, we may have removed bits from the popcount
-            assert(RT2i == R.t2_4b_start() - 1);
-            assert(RT3i == R.t3_3c_start());
-            assert(RT4i == Rbod.len);
-        } else {
-            assert(R.t4slice() == null);
-        }
+                // Check for emptied NT2 mask
+                if (NT2[e2] == 0) {
+                    LLeadMask.remove(codeunit(e2));
+                }
+            } else { // Must be L2, subtract mask from LT3i
+                assert(inLT2);
+                const NT3count = @popCount(NT2[e2]);
+                for (0..NT3count) |_| {
+                    const NT4count = @popCount(NT3[NT3i]);
+                    NT4i += NT4count;
+                    NT3i += 1;
+                }
+            }
+        } // Postconditions
+        assert(NT4i == NT4.len);
+        // No post for NT3i, we may have removed bits from the popcount
+        assert(RT2i == R.t2_4b_start() - 1);
+        assert(RT3i == R.t3_3c_start());
+        assert(RT4i == Rbod.len);
         // assemble
         header[LEAD] = LLeadMask.m;
         const T2c = compactSlice(&NT2);
@@ -1415,7 +1411,10 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     while (idx < sieve.len) {
         const cu = codeunit(sieve[idx]);
         switch (cu.kind) {
-            .low, .hi, .follow => return InvalidUnicode,
+            // this is now impossible by construction, we
+            // filtered all leading .low and .hi, and would
+            // have bailed on a .follow
+            .low, .hi, .follow => unreachable,
             .lead => {
                 const nBytes = cu.nMultiBytes();
                 if (nBytes) |nB| {

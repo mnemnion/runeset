@@ -17,6 +17,7 @@ const codeunit = elements.codeunit;
 
 const expect = std.testing.expect;
 const expectEqual = testing.expectEqual;
+const expectError = testing.expectError;
 
 //| Test data type(s)
 
@@ -42,12 +43,14 @@ fn testMatchNone(set: RuneSet, str: []const u8) !void {
         idx += nB;
     }
     // second pass to assure invalid follow bytes are handled safely
+    idx = 0;
     while (idx < str.len) {
         const slice = str[idx..];
         const match = set.matchOne(slice);
         if (match) |m| {
             try expectEqual(0, m);
         }
+        try expectEqual(0, set.matchOneAssumeValid(slice));
         idx += 1;
     }
 }
@@ -287,6 +290,9 @@ fn verifySetIntersection(str: []const u8, l: []const u8, r: []const u8, alloc: A
     const setLandAll = try setL.setIntersection(setAll, alloc);
     defer setLandAll.deinit(alloc);
     try expect(setAllandL.equalTo(setLandAll));
+    const setRandAll = try setR.setIntersection(setAll, alloc);
+    defer setRandAll.deinit(alloc);
+    try expect(setRandAll.equalTo(setAllandR));
 }
 
 fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void {
@@ -330,6 +336,7 @@ test "verify sets of LRstrings data" {
     try verifyLRSets(tangut_scatter, allocator);
     try verifyLRSets(khitan_widechunk, allocator);
     try verifyLRSets(rand1, allocator);
+    try verifyLRSets(rand2, allocator);
 }
 
 test "set from slice properties" {
@@ -345,6 +352,7 @@ test "set properties of combined sets" {
     try verifySetsOfTwoLRstrings(deseret, khitan_widechunk, allocator);
     try verifySetsOfTwoLRstrings(greek, deseret, allocator);
     try verifySetsOfTwoLRstrings(greek, cjk_scatter, allocator);
+    try verifySetsOfTwoLRstrings(cjk_chunk4k, greek, allocator);
     try verifySetsOfTwoLRstrings(two_byte_chunk, khitan_widechunk, allocator);
     try verifySetsOfTwoLRstrings(cjk_feather, khitan_widechunk, allocator);
     try verifySetsOfTwoLRstrings(two_byte_feather, tangut_widechunk, allocator);
@@ -363,6 +371,28 @@ test "partial set matches" {
     defer abcSet.deinit(allocator);
     try expectEqual(4, abcSet.matchMany("abcd123").?);
     try expectEqual(5, abcSet.matchManyAssumeValid("acegi12"));
+}
+
+test "coverage cases" {
+    const allocator = std.testing.allocator;
+    const setGreek = try RuneSet.createFromConstString(greek.str, allocator);
+    defer setGreek.deinit(allocator);
+    try expectEqual(null, setGreek.t4slice());
+    try expectEqual(null, setGreek.t3slice());
+    // invalid follow byte
+    try expectEqual(null, setGreek.matchOne("\x9f"));
+    try expectEqual(0, setGreek.matchOneAssumeValid("\x9f"));
+    const setABC = try RuneSet.createFromConstString("abc", allocator);
+    defer setABC.deinit(allocator);
+    try expectEqual(0, setABC.matchOneAssumeValid("d"));
+    // invalid high byte
+    try expectError(error.InvalidUnicode, RuneSet.createFromConstString("\xff\xff", allocator));
+    // invalid follow byte
+    try expectError(error.InvalidUnicode, RuneSet.createFromConstString("a\xb8", allocator));
+    // truncated multibyte
+    try expectError(error.InvalidUnicode, RuneSet.createFromConstString("abc\xf0\x9f", allocator));
+    // incomplete multibyte
+    try expectError(error.InvalidUnicode, RuneSet.createFromConstString("λθ⌘\xf0abcde", allocator));
 }
 
 // Inline tests of runeset.zig and all tests of element.zig
@@ -397,6 +427,7 @@ const tangut_scatter = data.tangut_scatter;
 const tangut_widechunk = data.tangut_widechunk;
 const khitan_widechunk = data.khitan_widechunk;
 const rand1 = data.rand1;
+const rand2 = data.rand2;
 
 test "data integrity" {
     try std.testing.expectEqualStrings(pua_A_chunk.str, pua_A_feather.str);
