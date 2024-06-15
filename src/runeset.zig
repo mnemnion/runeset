@@ -274,6 +274,91 @@ pub const RuneSet = struct {
         return try RuneSet.createFromMutableString(s_concat, allocator);
     }
 
+    /// Write the codepoints of the RuneSet to a buffer.
+    /// Caller guarantees that the buffer has room for all codepoints,
+    /// this value can be obtained by calling runeset.codeunitCount().
+    pub fn writeToBuffer(self: RuneSet, buf: []u8) void {
+        const bod = self.body;
+        var idx: usize = 0;
+        var lowIter = toMask(bod[LOW]).iterCodeUnits(.low);
+        while (lowIter.next()) |a| {
+            buf[idx] = a.byte();
+            idx += 1;
+        }
+        var hiIter = toMask(bod[HI]).iterCodeUnits(.hi);
+        while (hiIter.next()) |a| {
+            buf[idx] = a.byte();
+            idx += 1;
+        }
+        if (bod[LEAD] == 0) return;
+        var T1b_iter = toMask(bod[LEAD] & MASK_IN_TWO).iterCodeUnits(.lead);
+        var T2i = self.t2start();
+        while (T1b_iter.next()) |a| {
+            var T2iter = toMask(bod[T2i]).iterCodeUnits(.follow);
+            T2i += 1;
+            while (T2iter.next()) |b| {
+                buf[idx] = a.byte();
+                idx += 1;
+                buf[idx] = b.byte();
+            }
+        }
+        if (self.noThreeBytes()) {
+            assert(T2i == bod.len);
+            return;
+        }
+        var T1c_iter = toMask(bod[LEAD] & MASK_IN_THREE).iterCodeUnits(.lead);
+        var T3i = self.t3end() - 1;
+        while (T1c_iter.next()) |a| {
+            var T2iter = toMask(bod[T2i]).iterCodeUnits(.follow);
+            T2i += 1;
+            while (T2iter.next()) |b| {
+                var T3iter = toMask(bod[T3i]).iterCodeUnitsBack(.follow);
+                T3i -= 1;
+                while (T3iter.next()) |c| {
+                    buf[idx] = a.byte();
+                    idx += 1;
+                    buf[idx] = b.byte();
+                    idx += 1;
+                    buf[idx] = c.byte();
+                    idx += 1;
+                }
+            }
+        }
+        if (self.noFourBytes()) {
+            assert(T2i == self.t2end());
+            assert(T3i == self.t3start() - 1);
+            return;
+        }
+        var T1d_iter = toMask(bod[LEAD] & MASK_IN_FOUR).iterCodeUnits(.lead);
+        var T4i = bod.len - 1;
+        while (T1d_iter.next()) |a| {
+            var T2iter = toMask(bod[T2i]).iterCodeUnits(.follow);
+            T2i += 1;
+            while (T2iter.next()) |b| {
+                var T3iter = toMask(bod[T3i]).iterCodeUnitsBack(.follow);
+                T3i -= 1;
+                while (T3iter.next()) |c| {
+                    var T4iter = toMask(bod[T4i]).iterCodeUnitsBack(.follow);
+                    T4i -= 1;
+                    while (T4iter.next()) |d| {
+                        buf[idx] = a.byte();
+                        idx += 1;
+                        buf[idx] = b.byte();
+                        idx += 1;
+                        buf[idx] = c.byte();
+                        idx += 1;
+                        buf[idx] = d.byte();
+                        idx += 1;
+                    }
+                }
+            }
+        }
+        assert(T2i == self.t2end());
+        assert(T3i == self.t3start() - 1);
+        assert(T4i == self.t4offset() - 1);
+        return;
+    }
+
     /// Match one rune at the beginning of the slice.
     /// This is safe to use with invalid UTF-8, and will return null if
     /// such is encountered.
@@ -426,7 +511,12 @@ pub const RuneSet = struct {
         if (Lbod[HI] & ~Rbod[HI] != 0) return false;
         if (Lbod[LEAD] & ~Rbod[LEAD] != 0) return false;
         if (Lbod[LEAD] == 0) return true;
-        // We now know Rbod[LEAD] is a superset
+        // We now know Rbod[LEAD] is a superset.
+        // We iterate T2 separately, rather than doing one long
+        // run, because iteration of T2 is always cheap, and this
+        // gives early returns for some cases where the two sets share
+        // a large number of three and four byte characters, costing
+        // only a few cycles extra.
         const L1m = toMask(Lbod[LEAD]);
         {
             var LT2i = L.t2start();
@@ -440,14 +530,17 @@ pub const RuneSet = struct {
                 RT2i += 1;
             }
         }
+        // It also lets us use these two short circuits:
         if (L.noThreeBytes()) return true;
         if (R.noThreeBytes()) return false;
-        // We can handle T3 and T4 in one reverse iteration
+        // We can handle T3 and T4 in one iteration, backward
+        // across T2, and forward across T3 and T4 (if it exists)
         var LT2i = L.t2final();
         var RT2i = R.t2final();
         var LT3i = L.t3start();
         var RT3i = R.t3start();
-        // These can be zero, if so, they won't be used
+        // These can be zero, if so, they won't be used,
+        // because the sets would have no d byte leads
         var LT4i = R.t4offset();
         var RT4i = L.t4offset();
         var cLeadIter = blk: {
@@ -471,7 +564,7 @@ pub const RuneSet = struct {
                             while (RT3iter.next()) |e4| {
                                 if (LT3m.isElem(e4)) {
                                     // Therefore:
-                                    assert(!R.noFourBytes());
+                                    assert(!L.noFourBytes());
                                     if (Lbod[LT4i] & ~Rbod[LT4i] != 0) return false;
                                     LT4i += 1;
                                 }
@@ -1155,9 +1248,10 @@ pub const RuneSet = struct {
                     RT2i += 1;
                 } else if (LLeadMask.isElem(e2)) {
                     LT2i += 1;
-                } else if (RLeadMask.isElem(e2)) {
+                } else {
+                    assert(RLeadMask.isElem(e2));
                     RT2i += 1;
-                } else unreachable;
+                }
             }
         } // we can check LEAD to see if there are surviving c bytes
         if (NLeadMask.m & MASK_OUT_TWO == 0) {

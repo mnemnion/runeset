@@ -167,6 +167,10 @@ pub const Mask = struct {
         return MaskCodeUnits{ .mIter = self.iterElements(), .kind = kind };
     }
 
+    pub fn iterCodeUnitsBack(self: Mask, kind: RuneKind) MaskCodeUnitsBack {
+        return MaskCodeUnitsBack{ .mBack = self.iterElemBack(), .kind = kind };
+    }
+
     /// Return count of all members in set.
     ///
     /// Most popcounts are done on words we don't need to have
@@ -240,6 +244,20 @@ pub const MaskCodeUnits = struct {
     kind: RuneKind,
     pub fn next(itr: *MaskCodeUnits) ?CodeUnit {
         const elem = MaskElements.next(&itr.mIter);
+        if (elem) |e| {
+            return CodeUnit{ .kind = itr.kind, .body = e };
+        } else {
+            return null;
+        }
+    }
+};
+
+/// Iterate all CodeUnits of a Mask, backward
+pub const MaskCodeUnitsBack = struct {
+    mBack: MaskElemBack,
+    kind: RuneKind,
+    pub fn next(itr: *MaskCodeUnits) ?CodeUnit {
+        const elem = MaskElemBack.next(&itr.mBack);
         if (elem) |e| {
             return CodeUnit{ .kind = itr.kind, .body = e };
         } else {
