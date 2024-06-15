@@ -418,6 +418,83 @@ pub const RuneSet = struct {
         return a + (2 * b) + (3 * c) + (4 * d);
     }
 
+    /// Test if the receiver is a subset of the argument.
+    pub fn subsetOf(L: RuneSet, R: RuneSet) bool {
+        const Lbod = L.body;
+        const Rbod = R.body;
+        if (Lbod[LOW] & ~Rbod[LOW] != 0) return false;
+        if (Lbod[HI] & ~Rbod[HI] != 0) return false;
+        if (Lbod[LEAD] & ~Rbod[LEAD] != 0) return false;
+        if (Lbod[LEAD] == 0) return true;
+        // We now know Rbod[LEAD] is a superset
+        const L1m = toMask(Lbod[LEAD]);
+        {
+            var LT2i = L.t2start();
+            var RT2i = R.t2start();
+            var R1iter = toMask(Rbod[LEAD]).iterElements();
+            while (R1iter.next()) |e2| {
+                if (L1m.isElem(e2)) {
+                    if (Lbod[LT2i] & ~Rbod[RT2i] != 0) return false;
+                    LT2i += 1;
+                }
+                RT2i += 1;
+            }
+        }
+        if (L.noThreeBytes()) return true;
+        if (R.noThreeBytes()) return false;
+        // We can handle T3 and T4 in one reverse iteration
+        var LT2i = L.t2final();
+        var RT2i = R.t2final();
+        var LT3i = L.t3start();
+        var RT3i = R.t3start();
+        // These can be zero, if so, they won't be used
+        var LT4i = R.t4offset();
+        var RT4i = L.t4offset();
+        var cLeadIter = blk: {
+            const R1c = Rbod[LEAD] & MASK_OUT_TWO;
+            break :blk toMask(R1c).iterElemBack();
+        };
+        while (cLeadIter.next()) |e2| {
+            if (L1m.isElem(e2)) {
+                // We know this:
+                assert(Lbod[LT2i] & ~Rbod[RT2i] == 0);
+                const LT2m = toMask(Lbod[LT2i]);
+                var RT2iter = toMask(Rbod[RT2i]).iterElemBack();
+                while (RT2iter.next()) |e3| {
+                    if (LT2m.isElem(e3)) {
+                        if (Lbod[LT3i] & ~Rbod[RT3i] != 0) return false;
+                        if (e2 >= THREE_MAX) {
+                            // Means we know this:
+                            assert(!R.noFourBytes());
+                            const LT3m = toMask(Lbod[LT3i]);
+                            var RT3iter = toMask(Rbod[RT3i]).iterElements();
+                            while (RT3iter.next()) |e4| {
+                                if (LT3m.isElem(e4)) {
+                                    // Therefore:
+                                    assert(!R.noFourBytes());
+                                    if (Lbod[LT4i] & ~Rbod[LT4i] != 0) return false;
+                                    LT4i += 1;
+                                }
+                                RT4i += 1;
+                            }
+                        }
+                        LT3i += 1;
+                    }
+                    RT3i += 1;
+                }
+                LT2i -= 1;
+            }
+            RT2i -= 1;
+        } // postconditions
+        assert(LT2i == L.t2_3b_start() - 1);
+        assert(RT2i == R.t2_3b_start() - 1);
+        assert(LT3i == L.t3end());
+        assert(RT3i == R.t3end());
+        assert(LT4i == Lbod.len or LT4i == 0);
+        assert(RT4i == Rbod.len or RT4i == 0);
+        return true;
+    }
+
     // TODO add RuneSet iterator and runeset.toString(buf)
 
     //| # Set Operations
@@ -448,7 +525,7 @@ pub const RuneSet = struct {
 
     /// Union of two RuneSets.
     ///
-    pub fn setUnion(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
+    pub fn setUnion(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
         var header: [4]u64 = .{0} ** 4;
         const Lbod = L.body;
         const Rbod = R.body;
@@ -734,7 +811,7 @@ pub const RuneSet = struct {
 
     /// Return difference of receiver and argument as new set.
     /// Calling context owns the memory.
-    pub fn setDifference(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
+    pub fn setDifference(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
         var header: [4]u64 = undefined;
         const Lbod = L.body;
         const Rbod = R.body;
@@ -915,7 +992,7 @@ pub const RuneSet = struct {
         const LT1m = toMask(Lbod[LEAD]);
         const RT1m = toMask(Rbod[LEAD]);
         // Track progress forward through T3
-        // The d region of NT3 is identical to LT3
+        // The d region of NT3 is still identical to LT3
         var NT3i: usize = 0;
         var RT3i = R.t3start();
         // Similarly, d region of NT2 is still identical to LT2
@@ -1045,7 +1122,7 @@ pub const RuneSet = struct {
 
     /// Return intersection of receiver with first argument.
     /// Calling context owns memory.
-    pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) !RuneSet {
+    pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
         const Lbod = L.body;
         const Rbod = R.body;
         var header: [4]u64 = undefined;
@@ -1340,7 +1417,7 @@ pub const RuneSet = struct {
 ///
 /// The string must have only valid utf-8, or this function will return
 /// an error.
-fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
+fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, OutOfMemory }![]u64 {
     // The header handles all ASCII and lead bytes.  The fourth word
     // defines the offset into T4, which is zero unless the set contains
     // four-byte characters.
@@ -1411,7 +1488,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) ![]u64 {
     while (idx < sieve.len) {
         const cu = codeunit(sieve[idx]);
         switch (cu.kind) {
-            // this is now impossible by construction, we
+            // This is now impossible by construction, we
             // filtered all leading .low and .hi, and would
             // have bailed on a .follow
             .low, .hi, .follow => unreachable,
