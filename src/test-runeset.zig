@@ -373,6 +373,45 @@ test "partial set matches" {
     try expectEqual(5, abcSet.matchManyAssumeValid("acegi12"));
 }
 
+test "subsetting" {
+    const allocator = std.testing.allocator;
+    const nums = "01234567890";
+    const numSuper = try RuneSet.createFromConstString(nums, allocator);
+    defer numSuper.deinit(allocator);
+    const numSub = try RuneSet.createFromConstString(nums[0..5], allocator);
+    defer numSub.deinit(allocator);
+    try expect(numSub.subsetOf(numSuper));
+    try expectEqual(false, numSuper.subsetOf(numSub));
+    const alpha = "ABCDEFGHIJKL";
+    const alphaSuper = try RuneSet.createFromConstString(alpha, allocator);
+    defer alphaSuper.deinit(allocator);
+    const alphaSub = try RuneSet.createFromConstString(alpha[0..8], allocator);
+    defer alphaSub.deinit(allocator);
+    try expect(alphaSub.subsetOf(alphaSuper));
+    try expect(!alphaSuper.subsetOf(alphaSub));
+    const greek_s = greek.str;
+    const greekSuper = try RuneSet.createFromConstString(greek_s, allocator);
+    defer greekSuper.deinit(allocator);
+    const greekSub = try RuneSet.createFromConstString(greek_s[0 .. greek_s.len - 8], allocator);
+    defer greekSub.deinit(allocator);
+    try expect(greekSub.subsetOf(greekSuper));
+    try expect(!greekSuper.subsetOf(greekSub));
+    const han_s = cjk_chunk4k.str;
+    const hanSuper = try RuneSet.createFromConstString(han_s, allocator);
+    defer hanSuper.deinit(allocator);
+    const hanSub = try RuneSet.createFromConstString(han_s[0 .. han_s.len - 72], allocator);
+    defer hanSub.deinit(allocator);
+    try expect(hanSub.subsetOf(hanSuper));
+    try expect(!hanSuper.subsetOf(hanSub));
+    const deseret_s = deseret.str;
+    const deseretSuper = try RuneSet.createFromConstString(deseret_s, allocator);
+    defer deseretSuper.deinit(allocator);
+    const deseretSub = try RuneSet.createFromConstString(deseret_s[0 .. deseret_s.len - 24], allocator);
+    defer deseretSub.deinit(allocator);
+    try expect(deseretSub.subsetOf(deseretSuper));
+    try expect(!deseretSuper.subsetOf(deseretSub));
+}
+
 test "coverage cases" {
     const allocator = std.testing.allocator;
     const setGreek = try RuneSet.createFromConstString(greek.str, allocator);
