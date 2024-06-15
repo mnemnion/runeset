@@ -256,7 +256,7 @@ pub const MaskCodeUnits = struct {
 pub const MaskCodeUnitsBack = struct {
     mBack: MaskElemBack,
     kind: RuneKind,
-    pub fn next(itr: *MaskCodeUnits) ?CodeUnit {
+    pub fn next(itr: *MaskCodeUnitsBack) ?CodeUnit {
         const elem = MaskElemBack.next(&itr.mBack);
         if (elem) |e| {
             return CodeUnit{ .kind = itr.kind, .body = e };

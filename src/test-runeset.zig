@@ -97,6 +97,13 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     const setI = try set.setIntersection(set, alloc);
     defer setI.deinit(alloc);
     try expect(setI.equalTo(set));
+
+    const asString = try set.toString(alloc);
+    defer alloc.free(asString);
+    const matchedNew = set.matchMany(asString);
+    if (matchedNew) |nB| {
+        try expectEqual(asString.len, nB);
+    } else try expect(false);
 }
 
 /// Verify basic set properties of an LRstrings data sample.
