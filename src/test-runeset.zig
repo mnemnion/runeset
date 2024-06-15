@@ -109,6 +109,10 @@ fn withLRstringsVerifySetProperties(s: LRstrings, alloc: Allocator) !void {
     defer setR.deinit(alloc);
     const setAll = try RuneSet.createFromConstString(s.str, alloc);
     defer setAll.deinit(alloc);
+    try expect(setL.subsetOf(setAll));
+    try expect(setR.subsetOf(setAll));
+    try expect(!setAll.subsetOf(setL));
+    try expect(!setAll.subsetOf(setR));
     try verifySetProperties(s.l, setL, alloc);
     try verifySetProperties(s.r, setR, alloc);
     try verifySetProperties(s.str, setAll, alloc);
