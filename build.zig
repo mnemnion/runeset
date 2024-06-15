@@ -98,7 +98,13 @@ pub fn build(b: *std.Build) void {
     // Adds a step to generate code coverage
     const cov_step = b.step("cov", "Generate coverage (kcov must be installed)");
 
-    const cov_run = b.addSystemCommand(&.{ "kcov", "--clean", "--include-pattern=src/", "kcov-output" });
+    const cov_run = b.addSystemCommand(&.{
+        "kcov",
+        "--clean",
+        "--include-pattern=src/",
+        "--exclude-line=unreachable,expect(false)",
+        "kcov-output",
+    });
     cov_run.addArtifactArg(lib_unit_tests);
 
     cov_step.dependOn(&cov_run.step);
