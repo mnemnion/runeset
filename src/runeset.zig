@@ -51,7 +51,7 @@ const MASK_IN_TWO: u64 = codeunit(TWO_MAX).hiMask();
 const MASK_IN_FOUR: u64 = codeunit(47).lowMask();
 const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 // 32..56
-const MASK_IN_THREE: u64 = MASK_OUT_TWO | MASK_OUT_FOUR;
+const MASK_IN_THREE: u64 = MASK_OUT_TWO & MASK_OUT_FOUR;
 
 /// RuneSet: a fast character set for UTF-8.
 ///
@@ -300,6 +300,7 @@ pub const RuneSet = struct {
                 buf[idx] = a.byte();
                 idx += 1;
                 buf[idx] = b.byte();
+                idx += 1;
             }
         }
         if (self.noThreeBytes()) {
@@ -328,6 +329,8 @@ pub const RuneSet = struct {
             assert(T2i == self.t2end());
             assert(T3i == self.t3start() - 1);
             return;
+        } else {
+            assert(T3i == self.t3_3d_begin());
         }
         var T1d_iter = toMask(bod[LEAD] & MASK_IN_FOUR).iterCodeUnits(.lead);
         var T4i = bod.len - 1;
@@ -357,6 +360,14 @@ pub const RuneSet = struct {
         assert(T3i == self.t3start() - 1);
         assert(T4i == self.t4offset() - 1);
         return;
+    }
+
+    /// Serialize a RuneSet to a newly created string. Caller must free
+    /// memory.
+    pub fn toString(self: RuneSet, alloc: Allocator) error{OutOfMemory}![]u8 {
+        const buf = try alloc.alloc(u8, self.codeunitCount());
+        self.writeToBuffer(buf);
+        return buf;
     }
 
     /// Match one rune at the beginning of the slice.
