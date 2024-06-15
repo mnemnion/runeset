@@ -410,6 +410,11 @@ test "subsetting" {
     defer deseretSub.deinit(allocator);
     try expect(deseretSub.subsetOf(deseretSuper));
     try expect(!deseretSuper.subsetOf(deseretSub));
+    const greek_deseret = greek_s ++ deseret_s;
+    const greekDeseret = try RuneSet.createFromConstString(greek_deseret, allocator);
+    defer greekDeseret.deinit(allocator);
+    try expect(greekSuper.subsetOf(greekDeseret));
+    try expect(!greekDeseret.subsetOf(greekSuper));
 }
 
 test "coverage cases" {
