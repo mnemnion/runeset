@@ -535,7 +535,9 @@ pub const RuneSet = struct {
             var R1iter = toMask(Rbod[LEAD]).iterElements();
             while (R1iter.next()) |e2| {
                 if (L1m.isElem(e2)) {
-                    if (Lbod[LT2i] & ~Rbod[RT2i] != 0) return false;
+                    if (Lbod[LT2i] & ~Rbod[RT2i] != 0) {
+                        return false;
+                    }
                     LT2i += 1;
                 }
                 RT2i += 1;
@@ -543,7 +545,6 @@ pub const RuneSet = struct {
             assert(LT2i == L.t2end());
             assert(RT2i == R.t2end());
         }
-
         // It also lets us use these two short circuits:
         if (L.noThreeBytes()) return true;
         if (R.noThreeBytes()) return false;
@@ -555,8 +556,8 @@ pub const RuneSet = struct {
         var RT3i = R.t3start();
         // These can be zero, if so, they won't be used,
         // because the sets would have no d byte leads
-        var LT4i = R.t4offset();
-        var RT4i = L.t4offset();
+        var LT4i = L.t4offset();
+        var RT4i = R.t4offset();
         var RT1c_iter = blk: {
             const R1c = Rbod[LEAD] & MASK_OUT_TWO;
             break :blk toMask(R1c).iterElemBack();
@@ -569,7 +570,9 @@ pub const RuneSet = struct {
                 var RT2iter = toMask(Rbod[RT2i]).iterElemBack();
                 while (RT2iter.next()) |e3| {
                     if (LT2m.isElem(e3)) {
-                        if (Lbod[LT3i] & ~Rbod[RT3i] != 0) return false;
+                        if (Lbod[LT3i] & ~Rbod[RT3i] != 0) {
+                            return false;
+                        }
                         if (e2 >= THREE_MAX) {
                             // Means we know this:
                             assert(!R.noFourBytes());
@@ -579,7 +582,9 @@ pub const RuneSet = struct {
                                 if (LT3m.isElem(e4)) {
                                     // Therefore:
                                     assert(!L.noFourBytes());
-                                    if (Lbod[LT4i] & ~Rbod[LT4i] != 0) return false;
+                                    if (Lbod[LT4i] & ~Rbod[RT4i] != 0) {
+                                        return false;
+                                    }
                                     LT4i += 1;
                                 }
                                 RT4i += 1;

@@ -313,10 +313,22 @@ fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void 
     const r = try std.mem.concat(alloc, u8, &.{ L.r, R.r });
     defer alloc.free(r);
     // try as combined structure
+    const combined_a = LRstrings{
+        .str = str,
+        .l = l,
+        .r = r,
+    };
+    try verifyLRstringsData(combined_a, alloc);
     try verifySetUnion(str, l, r, alloc);
     try verifySetDifference(str, l, r, alloc);
     try verifySetIntersection(str, l, r, alloc);
     // try as separated structure
+    const combined_b = LRstrings{
+        .str = str,
+        .l = L.str,
+        .r = R.str,
+    };
+    try verifyLRstringsData(combined_b, alloc);
     try verifySetUnion(str, L.str, R.str, alloc);
     try verifySetDifference(str, L.str, R.str, alloc);
     try verifySetIntersection(str, L.str, R.str, alloc);
