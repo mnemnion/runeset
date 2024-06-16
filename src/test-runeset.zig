@@ -131,14 +131,14 @@ fn verifyLRstringsData(s: LRstrings, alloc: Allocator) !void {
     defer setR.deinit(alloc);
     const setAll = try RuneSet.createFromConstString(s.str, alloc);
     defer setAll.deinit(alloc);
-    try expectEqual(s.l.len, setAll.matchManyAssumeValid(s.l));
-    try expectEqual(s.r.len, setAll.matchManyAssumeValid(s.r));
+    try expectEqual(s.l.len, setAll.matchMany(s.l).?);
+    try expectEqual(s.r.len, setAll.matchMany(s.r).?);
+    try testMatchNone(setL, s.r);
+    try testMatchNone(setR, s.l);
     try expect(setL.subsetOf(setAll));
     try expect(setR.subsetOf(setAll));
     try expect(!setAll.subsetOf(setL));
     try expect(!setAll.subsetOf(setR));
-    try testMatchNone(setL, s.r);
-    try testMatchNone(setR, s.l);
 }
 
 fn verifyLRSets(s: LRstrings, alloc: Allocator) !void {

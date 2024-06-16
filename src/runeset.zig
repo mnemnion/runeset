@@ -594,15 +594,22 @@ pub const RuneSet = struct {
                     RT3i += 1;
                 }
                 LT2i -= 1;
+            } else {
+                if (e2 >= THREE_MAX) {
+                    const RT3count = @popCount(Rbod[RT2i]);
+                    for (0..RT3count) |_| {
+                        RT4i += @popCount(Rbod[RT3i]);
+                        RT3i += 1;
+                    }
+                } else {
+                    RT3i += @popCount(Rbod[RT2i]);
+                }
             }
             RT2i -= 1;
         } // postconditions
         assert(LT2i == L.t2_3b_start() - 1);
         assert(RT2i == R.t2_3b_start() - 1);
         assert(LT3i == L.t3end());
-        if (RT3i != R.t3end()) {
-            std.debug.print("RT3i {d} R.t3end() {d}\n", .{ RT3i, R.t3end() });
-        }
         assert(RT3i == R.t3end());
         assert(LT4i == Lbod.len or LT4i == 0);
         assert(RT4i == Rbod.len or RT4i == 0);
