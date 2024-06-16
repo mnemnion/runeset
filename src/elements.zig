@@ -44,13 +44,15 @@ pub const CodeUnit = packed struct(u8) {
         };
     }
 
-    /// number of bytes in *any* valid lead rune
+    /// Given the lead byte of a valid Rune, return the
+    /// number of bytes which encode it.
+    ///
     /// Will return null for invalid leads.
     pub inline fn nBytes(self: *const CodeUnit) ?u8 {
         switch (self.kind) {
             .low, .hi => return 1,
-            .follow => return null,
             .lead => return self.nMultiBytes(),
+            .follow => return null,
         }
     }
 
@@ -86,8 +88,7 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// A Rune is a packed u32 with four u8 fields: a, b, c, and d.
 /// If all four are 0, this represents NUL or U+0.  If a is greater
 /// than 0, and any of b, c, or d are 0, they are not a part of the
-/// value which the Rune encodes.  On little endian hardware, this is
-/// the same data layout as the same UTF-8 data in a string.
+/// value which the Rune encodes.
 ///
 /// Two Runes which both encode valid codepoints, compared with @bitCast,
 /// will sort according to their codepoint order.  While they can be
@@ -163,12 +164,98 @@ pub const Rune = packed struct(u32) {
         if (maybeRune) |rune|
             return rune
         else
-            return Rune{ .a = slice[0], .b = 0, .c = 0, .d = 0 };
+            return Rune{
+                .a = slice[0],
+                .b = 0,
+                .c = 0,
+                .d = 0,
+            };
     }
 
     /// Return a tuple containing the bytes of a Rune.
     pub fn toBytes(self: Rune) struct { u8, u8, u8, u8 } {
         return .{ self.a, self.b, self.c, self.d };
+    }
+
+    /// Return the number of bytes which contain data.
+    /// This does not mean that the Rune is valid Unicode.
+    pub fn byteCount(self: Rune) usize {
+        // .a always contains data
+        if (self.b == 0)
+            return 1
+        else if (self.c == 0)
+            return 2
+        else if (self.d == 0)
+            return 3
+        else
+            return 4;
+    }
+
+    const A_MAX = 0x80;
+    const B_MAX = 0x800;
+    const C_MAX = 0x10000;
+    const D_MAX = 0x110000;
+    const MASK_B: u32 = 0xc0;
+    const MASK_C: u32 = 0xe0;
+    const MASK_D: u32 = 0xf0;
+    const M_FOLLOW: u32 = 0x80;
+    const M_LOW: u32 = 0x3f;
+
+    /// Return a Rune encoding a generalized UTF-8 code point sequence
+    /// corresponding to the integer value provided.  This includes
+    /// invalid surrogates and noncharacters.  Throws an error if the
+    /// integer is out of range.
+    pub fn fromCodepoint(cp: u32) !Rune {
+        if (cp < A_MAX) {
+            return Rune{
+                .a = @intCast(cp),
+                .b = 0,
+                .c = 0,
+                .d = 0,
+            };
+        } else if (cp < B_MAX) {
+            const a: u8 = @intCast(MASK_B | (cp >> 6));
+            const b: u8 = @intCast(M_FOLLOW | (cp & M_LOW));
+            return Rune{
+                .a = a,
+                .b = b,
+                .c = 0,
+                .d = 0,
+            };
+        } else if (cp < C_MAX) {
+            const a: u8 = @intCast(MASK_C | (cp >> 12));
+            const b: u8 = @intCast(M_FOLLOW | ((cp >> 6) & M_LOW));
+            const c: u8 = @intCast(M_FOLLOW | (cp & M_LOW));
+            return Rune{
+                .a = a,
+                .b = b,
+                .c = c,
+                .d = 0,
+            };
+        } else if (cp < D_MAX) {
+            const a: u8 = @intCast(MASK_D | (cp >> 18));
+            const b: u8 = @intCast(M_FOLLOW | ((cp >> 12) & M_LOW));
+            const c: u8 = @intCast(M_FOLLOW | ((cp >> 6) & M_LOW));
+            const d: u8 = @intCast(M_FOLLOW | (cp & M_LOW));
+            return Rune{
+                .a = a,
+                .b = b,
+                .c = c,
+                .d = d,
+            };
+        } else {
+            return error.CodepointTooHigh;
+        }
+    }
+
+    /// Return the backing u32 of the Rune.
+    ///
+    /// This may be used for lexical comparison, but _does not_
+    /// equal the Unicode codeunit value, except for ASCII.
+    /// Lexical comparison of a malformed Rune is, of course,
+    /// spurious.
+    pub fn rawInt(self: Rune) u32 {
+        return @bitCast(self);
     }
 
     /// Copy the bytes of a Rune to the start of the provided slice.
@@ -260,24 +347,24 @@ pub const Mask = struct {
         }
     }
 
-    /// Check u6 element for membership. Used to iterate, and
-    /// in set operations on RuneSets.
-    pub inline fn bitSet(self: Mask, member: u6) bool {
-        return self.m | @as(u64, 1) << member == self.m;
-    }
-
+    /// Return a forward iterator of elements (u6) in the Mask.
     pub fn iterElements(self: Mask) MaskElements {
         return MaskElements{ .mask = self };
     }
 
+    /// Return a backward iterator of elements (u6) in the Mask.
     pub fn iterElemBack(self: Mask) MaskElemBack {
         return MaskElemBack{ .mask = self };
     }
 
+    /// Given a CodeUnit kind, return a forward iterator of the elements
+    /// of Mask as CodeUnits of that kind.
     pub fn iterCodeUnits(self: Mask, kind: RuneKind) MaskCodeUnits {
         return MaskCodeUnits{ .mIter = self.iterElements(), .kind = kind };
     }
 
+    /// Given a CodeUnit kind, return a backward iterator of the elements
+    /// of Mask as CodeUnits of that kind.
     pub fn iterCodeUnitsBack(self: Mask, kind: RuneKind) MaskCodeUnitsBack {
         return MaskCodeUnitsBack{ .mBack = self.iterElemBack(), .kind = kind };
     }
@@ -307,7 +394,9 @@ pub const Mask = struct {
     }
 };
 
-/// Mask Iterator. maskElements.next() will provide all
+//| Iterators
+
+/// Mask Iterator.  maskElements.next() will provide all
 /// u6 elements of the Mask.
 pub const MaskElements = struct {
     mask: Mask,
@@ -316,7 +405,7 @@ pub const MaskElements = struct {
         var result: ?u6 = null;
         while (itr.i < 64) {
             const e: u6 = @intCast(itr.i);
-            if (itr.mask.bitSet(e)) {
+            if (itr.mask.isElem(e)) {
                 result = e;
                 itr.i += 1;
                 break;
@@ -328,6 +417,7 @@ pub const MaskElements = struct {
     }
 };
 
+/// Reverse Mask iterator, of u6
 pub const MaskElemBack = struct {
     mask: Mask,
     i: i8 = 63,
@@ -336,7 +426,7 @@ pub const MaskElemBack = struct {
         var result: ?u6 = null;
         while (itr.i >= 0) {
             const e: u6 = @intCast(itr.i);
-            if (itr.mask.bitSet(e)) {
+            if (itr.mask.isElem(e)) {
                 result = e;
                 itr.i -= 1;
                 break;
@@ -363,7 +453,8 @@ pub const MaskCodeUnits = struct {
     }
 };
 
-/// Iterate all CodeUnits of a Mask, backward
+/// Iterate all CodeUnits of a Mask, backward, given a
+/// correct RuneKind.
 pub const MaskCodeUnitsBack = struct {
     mBack: MaskElemBack,
     kind: RuneKind,
@@ -507,6 +598,43 @@ test "invalid states" {
     var zeroMask = Mask.toMask(0);
     try expectEqual(null, zeroMask.higherThan(codeunit('1')));
     try expectEqual(null, zeroMask.lowerThan(codeunit('a')));
+}
+
+test "rune from codepoint" {
+    const rA = Rune.fromCodepoint(0x41) catch unreachable;
+    try expectEqual(0x41, rA.a);
+    try expect(rA.b == 0 and rA.c == 0 and rA.d == 0);
+    const strA = "A";
+    try expectEqual(strA[0], rA.a);
+    // greek Ω, U+3a9
+    const rB = Rune.fromCodepoint(0x3a9) catch unreachable;
+    try expectEqual(0xce, rB.a);
+    try expectEqual(0xa9, rB.b);
+    try expect(rB.c == 0 and rB.d == 0);
+    const strB = "Ω";
+    try expectEqual(strB[0], rB.a);
+    try expectEqual(strB[1], rB.b);
+    // empty set ∅, U+2205
+    const rC = Rune.fromCodepoint(0x2205) catch unreachable;
+    try expectEqual(0xe2, rC.a);
+    try expectEqual(0x88, rC.b);
+    try expectEqual(0x85, rC.c);
+    try expectEqual(0, rC.d);
+    const strC = "∅";
+    try expectEqual(strC[0], rC.a);
+    try expectEqual(strC[1], rC.b);
+    try expectEqual(strC[2], rC.c);
+    // thinking emoji 🤔, U+1f914
+    const rD = Rune.fromCodepoint(0x1f914) catch unreachable;
+    try expectEqual(0xf0, rD.a);
+    try expectEqual(0x9f, rD.b);
+    try expectEqual(0xa4, rD.c);
+    try expectEqual(0x94, rD.d);
+    const strD = "🤔";
+    try expectEqual(strD[0], rD.a);
+    try expectEqual(strD[1], rD.b);
+    try expectEqual(strD[2], rD.c);
+    try expectEqual(strD[3], rD.d);
 }
 
 // test "bleh" {
