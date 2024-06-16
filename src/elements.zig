@@ -118,7 +118,6 @@ pub const Rune = packed struct(u32) {
                 },
                 .follow => return null,
                 .lead => {
-                    // const nBytes = a.nBytes();
                     switch (nB) {
                         2 => {
                             if (codeunit(slice[1]).kind == .follow)
@@ -173,7 +172,11 @@ pub const Rune = packed struct(u32) {
     }
 
     /// Return a tuple containing the bytes of a Rune.
-    pub fn toBytes(self: Rune) struct { u8, u8, u8, u8 } {
+    pub fn toByteTuple(self: Rune) struct { u8, u8, u8, u8 } {
+        return .{ self.a, self.b, self.c, self.d };
+    }
+
+    pub fn toByteArray(self: Rune) [4]u8 {
         return .{ self.a, self.b, self.c, self.d };
     }
 
@@ -246,6 +249,28 @@ pub const Rune = packed struct(u32) {
         } else {
             return error.CodepointTooHigh;
         }
+    }
+
+    /// Convert a Rune the codepoint it represents.  This does not
+    /// completely validate the Rune, it assumes that this Rune was
+    /// generated using a function which encodes malformed data using
+    /// only the .a byte (such as Rune.fromSliceAllowInvalid).
+    pub fn toCodepoint(self: Rune) !u21 {
+        if (self.a < A_MAX) return @intCast(self.a);
+        if (self.b == 0) return error.InvalidUnicode;
+        if (self.a & 0xe0 == 0xc0) {
+            const a_wide = @as(u32, self.a);
+            return @intCast(((a_wide & 0x1f) << 6) | (self.b & 0x3f));
+        } else if (self.a & 0xf0 == 0xe0) {
+            const a_wide = @as(u32, self.a);
+            const b_wide = @as(u32, self.b);
+            return @intCast(((a_wide & 0x0f) << 12) | ((b_wide & 0x3f) << 6) | (self.c & 0x3f));
+        } else if (self.a & 0xf8 == 0xf0) {
+            const a_wide = @as(u32, self.a);
+            const b_wide = @as(u32, self.b);
+            const c_wide = @as(u32, self.c);
+            return @intCast(((a_wide & 0x07) << 18) | ((b_wide & 0x3f) << 12) | ((c_wide & 0x3f) << 6) | (self.d & 0x3f));
+        } else return error.InvalidUnicode;
     }
 
     /// Return the backing u32 of the Rune.
@@ -602,10 +627,11 @@ test "invalid states" {
     try expectEqual(null, zeroMask.lowerThan(codeunit('a')));
 }
 
-test "rune from codepoint" {
+test "rune tests" {
     const rA = Rune.fromCodepoint(0x41) catch unreachable;
     try expectEqual(0x41, rA.a);
     try expect(rA.b == 0 and rA.c == 0 and rA.d == 0);
+    try expectEqual(0x41, rA.toCodepoint());
     const strA = "A";
     try expectEqual(strA[0], rA.a);
     const rA2 = Rune.fromSlice(strA).?;
@@ -615,6 +641,7 @@ test "rune from codepoint" {
     try expectEqual(0xce, rB.a);
     try expectEqual(0xa9, rB.b);
     try expect(rB.c == 0 and rB.d == 0);
+    try expectEqual(0x3a9, rB.toCodepoint());
     const strB = "Ω";
     try expectEqual(strB[0], rB.a);
     try expectEqual(strB[1], rB.b);
@@ -626,6 +653,7 @@ test "rune from codepoint" {
     try expectEqual(0x88, rC.b);
     try expectEqual(0x85, rC.c);
     try expectEqual(0, rC.d);
+    try expectEqual(0x2205, rC.toCodepoint());
     const strC = "∅";
     try expectEqual(strC[0], rC.a);
     try expectEqual(strC[1], rC.b);
@@ -638,6 +666,7 @@ test "rune from codepoint" {
     try expectEqual(0x9f, rD.b);
     try expectEqual(0xa4, rD.c);
     try expectEqual(0x94, rD.d);
+    try expectEqual(0x1f914, rD.toCodepoint());
     const strD = "🤔";
     try expectEqual(strD[0], rD.a);
     try expectEqual(strD[1], rD.b);
@@ -645,22 +674,7 @@ test "rune from codepoint" {
     try expectEqual(strD[3], rD.d);
     const rD2 = Rune.fromSlice(strD).?;
     try expectEqualDeep(rD, rD2);
+    const rDs = rD.toByteArray();
+    try std.testing.expectEqualStrings(strD, &rDs);
     try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
 }
-
-// test "bleh" {
-//     const C = split('C');
-//     std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ C.body, C.hiMask() });
-//     std.debug.print("       lowMask: 0b{b:0>64}\n", .{C.lowMask()});
-//     std.debug.print("        inMask: 0b{b:0>64}\n", .{C.inMask()});
-//     const Qmark = split('?');
-//     std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ Qmark.body, Qmark.hiMask() });D
-//     std.debug.print("        lowMask: 0b{b:0>64}\n", .{Qmark.lowMask()});
-//     const six_three = split('O');
-//     std.debug.print("body: {d} hiMask: 0b{b:0>64}\n", .{ six_three.body, six_three.hiMask() });
-//     std.debug.print("        lowMask: 0b{b:0>64}\n", .{six_three.lowMask()});
-//     const at = split('@');
-//     std.debug.print("body: {d} lowMask: 0b{b:0>64}\n", .{ at.body, at.lowMask() });
-//     std.debug.print("         hiMask: 0b{b:0>64}\n", .{at.hiMask()});
-//     try expect(3 == 3);
-// }

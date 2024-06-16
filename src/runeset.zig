@@ -540,7 +540,10 @@ pub const RuneSet = struct {
                 }
                 RT2i += 1;
             }
+            assert(LT2i == L.t2end());
+            assert(RT2i == R.t2end());
         }
+
         // It also lets us use these two short circuits:
         if (L.noThreeBytes()) return true;
         if (R.noThreeBytes()) return false;
@@ -554,11 +557,11 @@ pub const RuneSet = struct {
         // because the sets would have no d byte leads
         var LT4i = R.t4offset();
         var RT4i = L.t4offset();
-        var cLeadIter = blk: {
+        var RT1c_iter = blk: {
             const R1c = Rbod[LEAD] & MASK_OUT_TWO;
             break :blk toMask(R1c).iterElemBack();
         };
-        while (cLeadIter.next()) |e2| {
+        while (RT1c_iter.next()) |e2| {
             if (L1m.isElem(e2)) {
                 // We know this:
                 assert(Lbod[LT2i] & ~Rbod[RT2i] == 0);
@@ -583,6 +586,10 @@ pub const RuneSet = struct {
                             }
                         }
                         LT3i += 1;
+                    } else {
+                        if (e2 >= THREE_MAX) {
+                            RT4i += @popCount(Rbod[RT3i]);
+                        }
                     }
                     RT3i += 1;
                 }
@@ -593,6 +600,9 @@ pub const RuneSet = struct {
         assert(LT2i == L.t2_3b_start() - 1);
         assert(RT2i == R.t2_3b_start() - 1);
         assert(LT3i == L.t3end());
+        if (RT3i != R.t3end()) {
+            std.debug.print("RT3i {d} R.t3end() {d}\n", .{ RT3i, R.t3end() });
+        }
         assert(RT3i == R.t3end());
         assert(LT4i == Lbod.len or LT4i == 0);
         assert(RT4i == Rbod.len or RT4i == 0);

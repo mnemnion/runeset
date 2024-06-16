@@ -97,7 +97,6 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     const setI = try set.setIntersection(set, alloc);
     defer setI.deinit(alloc);
     try expect(setI.equalTo(set));
-
     const asString = try set.toString(alloc);
     defer alloc.free(asString);
     const matchedNew = set.matchMany(asString);
@@ -116,10 +115,6 @@ fn withLRstringsVerifySetProperties(s: LRstrings, alloc: Allocator) !void {
     defer setR.deinit(alloc);
     const setAll = try RuneSet.createFromConstString(s.str, alloc);
     defer setAll.deinit(alloc);
-    try expect(setL.subsetOf(setAll));
-    try expect(setR.subsetOf(setAll));
-    try expect(!setAll.subsetOf(setL));
-    try expect(!setAll.subsetOf(setR));
     try verifySetProperties(s.l, setL, alloc);
     try verifySetProperties(s.r, setR, alloc);
     try verifySetProperties(s.str, setAll, alloc);
@@ -138,6 +133,10 @@ fn verifyLRstringsData(s: LRstrings, alloc: Allocator) !void {
     defer setAll.deinit(alloc);
     try expectEqual(s.l.len, setAll.matchManyAssumeValid(s.l));
     try expectEqual(s.r.len, setAll.matchManyAssumeValid(s.r));
+    try expect(setL.subsetOf(setAll));
+    try expect(setR.subsetOf(setAll));
+    try expect(!setAll.subsetOf(setL));
+    try expect(!setAll.subsetOf(setR));
     try testMatchNone(setL, s.r);
     try testMatchNone(setR, s.l);
 }
