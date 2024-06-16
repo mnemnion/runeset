@@ -354,7 +354,7 @@ pub const MaskCodeUnits = struct {
     mIter: MaskElements,
     kind: RuneKind,
     pub fn next(itr: *MaskCodeUnits) ?CodeUnit {
-        const elem = MaskElements.next(&itr.mIter);
+        const elem = itr.mIter.next();
         if (elem) |e| {
             return CodeUnit{ .kind = itr.kind, .body = e };
         } else {
@@ -368,7 +368,7 @@ pub const MaskCodeUnitsBack = struct {
     mBack: MaskElemBack,
     kind: RuneKind,
     pub fn next(itr: *MaskCodeUnitsBack) ?CodeUnit {
-        const elem = MaskElemBack.next(&itr.mBack);
+        const elem = itr.mBack.next();
         if (elem) |e| {
             return CodeUnit{ .kind = itr.kind, .body = e };
         } else {
