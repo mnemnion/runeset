@@ -108,15 +108,15 @@ pub const Rune = packed struct(u32) {
         const a = codeunit(slice[0]);
         const nBytes = a.nBytes();
         if (nBytes) |nB| {
-            if (nBytes > slice.len) return null;
-            switch (a) {
+            if (nB > slice.len) return null;
+            switch (a.kind) {
                 .low, .hi => return Rune{
                     .a = slice[0],
                     .b = 0,
                     .c = 0,
                     .d = 0,
                 },
-                .follow => null,
+                .follow => return null,
                 .lead => {
                     // const nBytes = a.nBytes();
                     switch (nB) {
@@ -472,6 +472,8 @@ pub const MaskCodeUnitsBack = struct {
 
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectError = std.testing.expectError;
+const expectEqualDeep = std.testing.expectEqualDeep;
 
 test codeunit {
     const A = codeunit('A');
@@ -606,6 +608,8 @@ test "rune from codepoint" {
     try expect(rA.b == 0 and rA.c == 0 and rA.d == 0);
     const strA = "A";
     try expectEqual(strA[0], rA.a);
+    const rA2 = Rune.fromSlice(strA).?;
+    try expectEqualDeep(rA, rA2);
     // greek Ω, U+3a9
     const rB = Rune.fromCodepoint(0x3a9) catch unreachable;
     try expectEqual(0xce, rB.a);
@@ -614,6 +618,8 @@ test "rune from codepoint" {
     const strB = "Ω";
     try expectEqual(strB[0], rB.a);
     try expectEqual(strB[1], rB.b);
+    const rB2 = Rune.fromSlice(strB).?;
+    try expectEqualDeep(rB, rB2);
     // empty set ∅, U+2205
     const rC = Rune.fromCodepoint(0x2205) catch unreachable;
     try expectEqual(0xe2, rC.a);
@@ -624,6 +630,8 @@ test "rune from codepoint" {
     try expectEqual(strC[0], rC.a);
     try expectEqual(strC[1], rC.b);
     try expectEqual(strC[2], rC.c);
+    const rC2 = Rune.fromSlice(strC).?;
+    try expectEqualDeep(rC, rC2);
     // thinking emoji 🤔, U+1f914
     const rD = Rune.fromCodepoint(0x1f914) catch unreachable;
     try expectEqual(0xf0, rD.a);
@@ -635,6 +643,9 @@ test "rune from codepoint" {
     try expectEqual(strD[1], rD.b);
     try expectEqual(strD[2], rD.c);
     try expectEqual(strD[3], rD.d);
+    const rD2 = Rune.fromSlice(strD).?;
+    try expectEqualDeep(rD, rD2);
+    try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
 }
 
 // test "bleh" {
