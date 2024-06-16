@@ -11,7 +11,7 @@
 //! Additionally, these may be combined using the basic set operations:
 //! union, difference, and intersection, as well as tested for equality.
 //!
-//! TODO iteration of codeunits, serializing to string, and subset operation.
+//! TODO iteration of codeunits
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -599,7 +599,7 @@ pub const RuneSet = struct {
         return true;
     }
 
-    // TODO add RuneSet iterator and runeset.toString(buf)
+    // TODO add RuneSet iterator
 
     //| # Set Operations
     //|

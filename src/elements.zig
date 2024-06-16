@@ -1,11 +1,10 @@
 //!  libruneset: a Zig library for fast utf-8 charsets
 //!
-//!
+//! The elements namespace provides data structures for working
+//! with UTF-8 encoded data.
 
 const std = @import("std");
 const testing = std.testing;
-const bit_set = std.bit_set;
-const IntegerBitSet = bit_set.IntegerBitSet;
 
 /// Kinds of most significant bits in UTF-8
 pub const RuneKind = enum(u2) {
@@ -78,6 +77,118 @@ pub inline fn codeunit(b: u8) CodeUnit {
     return @bitCast(b);
 }
 
+/// Rune is a data structure which might be a UTF-8 scalar value.
+/// Working with UTF-8 encoded values is its purpose, but it can
+/// also have surrogate codepoints, overlong encodings, and garbage
+/// data.  Creating an invalid Rune must be done deliberately, the
+/// main constructor will return null for bad data.
+///
+/// A Rune is a packed u32 with four u8 fields: a, b, c, and d.
+/// If all four are 0, this represents NUL or U+0.  If a is greater
+/// than 0, and any of b, c, or d are 0, they are not a part of the
+/// value which the Rune encodes.  On little endian hardware, this is
+/// the same data layout as the same UTF-8 data in a string.
+///
+/// Two Runes which both encode valid codepoints, compared with @bitCast,
+/// will sort according to their codepoint order.  While they can be
+/// converted to scalar codepoints, they maintain their UTF-8 encoding
+/// internally, such that adding them to strings, formatting them, and
+/// so on, is straightforward and very fast.
+pub const Rune = packed struct(u32) {
+    a: u8,
+    b: u8,
+    c: u8,
+    d: u8,
+
+    // Make a Rune from a slice of u8, provided that this slice is
+    // generalized UTF-8: encoding a codepoint, whether or not it is
+    // an allowed scalar value.
+    pub fn fromSlice(slice: []const u8) ?Rune {
+        const a = codeunit(slice[0]);
+        const nBytes = a.nBytes();
+        if (nBytes) |nB| {
+            if (nBytes > slice.len) return null;
+            switch (a) {
+                .low, .hi => return Rune{
+                    .a = slice[0],
+                    .b = 0,
+                    .c = 0,
+                    .d = 0,
+                },
+                .follow => null,
+                .lead => {
+                    // const nBytes = a.nBytes();
+                    switch (nB) {
+                        2 => {
+                            if (codeunit(slice[1]).kind == .follow)
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = 0,
+                                    .d = 0,
+                                }
+                            else
+                                return null;
+                        },
+                        3 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow)
+                            return Rune{
+                                .a = slice[0],
+                                .b = slice[1],
+                                .c = slice[2],
+                                .d = 0,
+                            }
+                        else
+                            return null,
+                        4 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow)
+                            return Rune{
+                                .a = slice[0],
+                                .b = slice[1],
+                                .c = slice[2],
+                                .d = slice[3],
+                            }
+                        else
+                            return null,
+                        else => unreachable,
+                    }
+                },
+            }
+        } else return null;
+    }
+
+    /// Return a Rune from a slice of u8. Caller guarantees that [0] is addressable.
+    /// If the sequence is not valid generalized UTF-8, the Rune will be the first
+    /// byte of the slice.
+    pub fn fromSliceAllowInvalid(slice: []const u8) Rune {
+        const maybeRune = Rune.fromSlice(slice);
+        if (maybeRune) |rune|
+            return rune
+        else
+            return Rune{ .a = slice[0], .b = 0, .c = 0, .d = 0 };
+    }
+
+    /// Return a tuple containing the bytes of a Rune.
+    pub fn toBytes(self: Rune) struct { u8, u8, u8, u8 } {
+        return .{ self.a, self.b, self.c, self.d };
+    }
+
+    /// Copy the bytes of a Rune to the start of the provided slice.
+    /// Caller is responsible for assuring the slice has sufficient
+    /// room.  Returns the number of bytes copied.
+    pub fn copyToSlice(self: Rune, slice: []u8) usize {
+        slice[0] = self.a;
+        if (self.b == 0) return 1;
+        slice[1] = self.b;
+        if (self.c == 0) return 2;
+        slice[2] = self.c;
+        if (self.d == 0) return 3;
+        slice[3] = self.d;
+        return 4;
+    }
+
+    // TODO fromCodepoint, writeToWriter, isScalarValue, isCodepoint,
+    //
+};
+
 /// Bitmask for runesets
 ///
 /// We define our own bitset because the operations we need to
@@ -88,7 +199,7 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// Note that Masks do not track which kind of byte they apply to,
 /// since they will be stored as ordinary u64s.  User code must
 /// ensure that CodeUnits tested against a Mask are of the appropriate
-/// type, and order in sequence.
+/// type, and otherwise valid for the test performed.
 ///
 pub const Mask = struct {
     m: u64,
