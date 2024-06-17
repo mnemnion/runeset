@@ -1433,21 +1433,15 @@ pub const RuneSet = struct {
                             var unionT4iter = LT3m.setunion(RT3m).iterElements();
                             while (unionT4iter.next()) |e4| {
                                 if (bothT3m.isElem(e4)) {
-                                    if (NT3m.isElem(e4)) {
-                                        NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
-                                        if (NT4[NT4i] == 0) {
-                                            NT3m.remove(codeunit(e4));
-                                        }
-                                        NT4i += 1;
-                                        LT4i += 1;
-                                        RT4i += 1;
-                                    } else if (LT3m.isElem(e4)) {
-                                        LT4i += 1;
-                                        NT4i += 1;
-                                    } else {
-                                        assert(RT3m.isElem(e4));
-                                        RT4i += 1;
+                                    // NT3 was created via intersection, so:
+                                    assert(NT3m.isElem(e4));
+                                    NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
+                                    if (NT4[NT4i] == 0) {
+                                        NT3m.remove(codeunit(e4));
                                     }
+                                    NT4i += 1;
+                                    LT4i += 1;
+                                    RT4i += 1;
                                 } else if (LT3m.isElem(e4)) {
                                     NT4i += 1;
                                     LT4i += 1;
