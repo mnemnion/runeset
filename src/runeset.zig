@@ -1512,7 +1512,7 @@ pub const RuneSet = struct {
                 }
             } // end T2 union iteration
             // postconditions
-            // assert(NT4i == NT4.len);
+            assert(NT4i == NT4.len);
             assert(LT3i == L.t3_3c_start());
             assert(RT3i == R.t3_3c_start());
             assert(LT4i == Lbod.len);
@@ -1532,6 +1532,305 @@ pub const RuneSet = struct {
             std.debug.print("T3c.len {d} popT3 {d}\n", .{ T3c.len, popT3 });
             assert(T3c.len == popT3);
         }
+        const T3end = T2end + T3c.len;
+        const T4c = compactSlice(NT4);
+        if (T4c.len != 0)
+            header[T4_OFF] = T3end
+        else
+            header[T4_OFF] = 0;
+        assert(T4c.len == popCountSlice(T3c[0..popT4]));
+        const setLen = T3end + T4c.len;
+        const Nbod = try allocator.alloc(u64, setLen);
+        @memcpy(Nbod[0..4], &header);
+        @memcpy(Nbod[4..T2end], T2c);
+        @memcpy(Nbod[T2end..T3end], T3c);
+        @memcpy(Nbod[T3end..setLen], T4c);
+        return RuneSet{ .body = Nbod };
+    }
+
+    // Set intersection rewrite
+    // The left side is now the reference: every time we find something
+    // in L, that means we move N.  That way we can progressively thin
+    // out N, without the lost data making it exceptionally intricate and
+    // bug-prone to work through the high tiers.
+    // That's really all it will take, we squash it at the end and everything
+    // lines up.  Iterate the unions, test intersection, left, and right, with
+    // the usual distribution of logics.  If we have an intersection but the
+    // bit which triggers it is no longer in the set (from e.g. intersecting)
+    // NT2, then we just skip that zeroed-out section of NT3 or NT4.  Therefore
+    // we always know that the other bits exist, and so if their terminal mask
+    // hits zero, we can remove them.
+    /// Return intersection of receiver with first argument.
+    /// Calling context owns memory.
+    pub fn setIntersection2(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
+        const Lbod = L.body;
+        const Rbod = R.body;
+        var header: [4]u64 = undefined;
+        header[LOW] = Lbod[LOW] & Rbod[LOW];
+        header[HI] = Lbod[HI] & Rbod[HI];
+        header[LEAD] = Lbod[LEAD] & Rbod[LEAD];
+        header[T4_OFF] = 0;
+        if (header[LEAD] == 0) {
+            const Nbod = try allocator.alloc(u64, 4);
+            @memcpy(Nbod, &header);
+            return RuneSet{ .body = Nbod };
+        }
+        // No spreading L2 into NT2 this time, it would just create extra work
+        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        // Must be reassigned to header[LEAD] before returning
+        var NLeadMask = toMask(header[LEAD]);
+        const LT1m = L.maskAt(LEAD);
+        const RT1m = R.maskAt(LEAD);
+        {
+            var T2iter = LT1m.setunion(RT1m).iterElements();
+            var LT2i: usize = L.t2start();
+            var RT2i: usize = L.t2start();
+            while (T2iter.next()) |e2| {
+                // only time we can test with NLeadMask
+                if (NLeadMask.isElem(e2)) {
+                    NT2[e2] = Lbod[LT2i] & Rbod[RT2i];
+                    if (NT2[e2] == 0) {
+                        NLeadMask.remove(codeunit(e2));
+                    }
+                    LT2i += 1;
+                    RT2i += 1;
+                } else if (LT1m.isElem(e2)) {
+                    LT2i += 1;
+                } else {
+                    assert(RT1m.isElem(e2));
+                    RT2i += 1;
+                }
+            }
+        } // we can check LEAD to see if there are surviving c bytes
+        if (NLeadMask.m & MASK_OUT_TWO == 0) {
+            header[LEAD] = NLeadMask.m;
+            const T2c = compactSlice(&NT2);
+            const Nbod = try allocator.alloc(u64, 4 + T2c.len);
+            @memcpy(Nbod[0..4], &header);
+            @memcpy(Nbod[4..], T2c);
+            return RuneSet{ .body = Nbod };
+        }
+        // Tier 3
+        const bothT1m = toMask(Rbod[LEAD] & Lbod[LEAD]);
+        const NT3 = try allocator.alloc(u64, L.t3slice().len);
+        defer allocator.free(NT3);
+        @memset(NT3, 0);
+        {
+            // We iterate back through both T2s to find surviving T3s
+            var unionT2iter = blk: {
+                const RT1c_m = Rbod[LEAD] & MASK_OUT_TWO;
+                const LT1c_m = Lbod[LEAD] & MASK_OUT_TWO;
+                break :blk toMask(RT1c_m | LT1c_m).iterElemBack();
+            };
+            var RT2i = R.t2final();
+            var LT2i = L.t2final();
+            var LT3i = L.t3start();
+            var RT3i = R.t3start();
+            var NT3i: usize = 0;
+            while (unionT2iter.next()) |e2| {
+                if (bothT1m.isElem(e2)) {
+                    // this can be empty, it's ok
+                    var NT2m = toMask(NT2[e2]);
+                    const LT2m = toMask(Lbod[LT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
+                    const bothT2m = LT2m.intersection(RT2m);
+                    LT2i -= 1;
+                    RT2i -= 1;
+                    const unionT3iter = LT2m.setunion(RT2m).iterElemBack();
+                    while (unionT3iter) |e3| {
+                        if (bothT2m.isElem(e3)) {
+                            if (NT2m.isElem(e3)) {
+                                NT3[NT3i] = Rbod[RT3i] & Lbod[LT3i];
+                                if (NT3[NT3i] == 0) {
+                                    NT2m.remove(codeunit(e3));
+                                }
+                            }
+                            RT3i += 1;
+                            LT3i += 1;
+                            NT3i += 1;
+                        } else if (LT2m.isElem(e3)) {
+                            LT3i += 1;
+                            NT3i += 1; // hence, zero
+                        } else {
+                            assert(RT2m.isElem(e3));
+                            RT3i += 1;
+                        }
+                    } else if (LT1m.isElem(e2)) {
+                        LT3i += @popCount(Lbod[LT2i]);
+                        NT3i += @popCount(Lbod[LT2i]);
+                        LT2i -= 1;
+                    } else {
+                        assert(RT1m.isElem(e2));
+                        RT3i += @popCount(Rbod[RT2i]);
+                        RT2i -= 1;
+                    }
+                    NT2[e2] = NT2m.m;
+                    // might have started zero, but if not:
+                    if (NT2[e2] == 0 and NLeadMask.isElem(e2)) {
+                        NLeadMask.remove(codeunit(e2));
+                    }
+                }
+            }
+            assert(LT3i == L.t3end());
+            assert(RT3i == R.t3end());
+            assert(NT3i == NT3.len);
+            assert(LT2i == 3 + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(RT2i == 3 + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+        }
+        if (NLeadMask.m & MASK_IN_FOUR == 0) {
+            header[LEAD] = NLeadMask.m;
+            const T2c = compactSlice(&NT2);
+            const T2end = 4 + T2c.len;
+            const T3c = compactSlice(NT3);
+            assert(T3c.len == popCountSlice(NT2[TWO_MAX..]));
+            const setLen = T2end + T3c.len;
+            const Nbod = try allocator.alloc(u64, setLen);
+            @memcpy(Nbod[0..4], &header);
+            @memcpy(Nbod[4..T2end], T2c);
+            @memcpy(Nbod[T2end..setLen], T3c);
+            return RuneSet{ .body = Nbod };
+        }
+        // Tier 4
+        // Once again, reference on L
+        const NT4 = try allocator.alloc(u64, L.t4slice().len);
+        defer allocator.free(NT4);
+        @memset(NT4, 0);
+        {
+            // backward through T2s
+            var RT2i = R.t2final();
+            var LT2i = L.t2final();
+            // forward through d bytes of T3
+            var NT3i: usize = 0;
+            var LT3i = L.t3start();
+            var RT3i = R.t3start();
+            // forward through T4
+            var NT4i: usize = 0;
+            var LT4i = L.t4offset();
+            var RT4i = R.t4offset();
+            assert(LT4i != 0);
+            assert(RT4i != 0);
+            var unionT2iter = blk: {
+                const LT2d = Lbod[LEAD] & MASK_IN_FOUR;
+                const RT2d = Rbod[LEAD] & MASK_IN_FOUR;
+                break :blk toMask(LT2d | RT2d).iterElemBack();
+            };
+            while (unionT2iter.next()) |e2| {
+                if (bothT1m.isElem(e2)) {
+                    var NT2m = toMask(NT2[e2]);
+                    const LT2m = toMask(Lbod[LT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
+                    const bothT2m = LT2m.intersection(RT2m);
+                    LT2i -= 1;
+                    RT2i -= 1;
+                    const unionT3iter = LT2m.setunion(RT2m).iterElemBack();
+                    while (unionT3iter) |e3| {
+                        if (bothT2m.isElem(e3)) {
+                            var NT3m = NT3[NT3i];
+                            const LT3m = Lbod[LT3i];
+                            const RT3m = Rbod[RT3i];
+                            const bothT3m = LT3m.intersection(RT3m);
+                            const unionT4iter = LT3m.setunion(RT3m).iterElements();
+                            while (unionT4iter.next()) |e4| {
+                                if (bothT3m.isElem(e4)) {
+                                    if (NT3m.isElem(e4)) {
+                                        NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
+                                        if (NT4[NT4i] == 0) {
+                                            NT3m.remove(codeunit(e4));
+                                        }
+                                        NT4i += 1;
+                                        LT4i += 1;
+                                        RT4i += 1;
+                                    } else if (LT3m.isElem(e4)) {
+                                        LT4i += 1;
+                                        NT4i += 1;
+                                    } else {
+                                        assert(RT3m.isElem(e4));
+                                        RT4i += 1;
+                                    }
+                                } else if (LT3m.isElem(e4)) {
+                                    NT4i += 1;
+                                    LT4i += 1;
+                                } else {
+                                    assert(RT3m.isElem(e4));
+                                    RT4i += 1;
+                                }
+                            }
+                            NT3[NT3i] = NT3m.m;
+                            if (NT3[NT3i] == 0 and NT2m.isElem(e3)) {
+                                NT2m.remove(codeunit(e3));
+                            }
+                            RT3i += 1;
+                            LT3i += 1;
+                            NT3i += 1;
+                        } else if (LT2m.isElem(e3)) {
+                            assert(NT3[NT3i] == 0);
+                            const T4count = @popCount(Lbod[LT3i]);
+                            assert(T4count > 0);
+                            LT3i += 1;
+                            NT3i += 1;
+                            LT4i += T4count;
+                            NT4i += T4count;
+                        } else {
+                            assert(RT2m.isElem(e3));
+                            const T4count = @popCount(Rbod[RT3i]);
+                            assert(T4count > 0); // this would mean a malformed set
+                            RT4i += T4count;
+                            RT3i += 1;
+                        }
+                    }
+                    NT2[e2] = NT2m.m;
+                    if (NT2[e2] == 0 and NLeadMask.isElem(e2)) {
+                        NLeadMask.remove(codeunit(e2));
+                    }
+                } else if (LT1m.isElem(e2)) {
+                    assert(NT2[e2] == 0);
+                    assert(!NLeadMask.isElem(e2));
+                    const T3count = @popCount(Lbod[LT2i]);
+                    LT2i -= 1;
+                    assert(T3count > 0);
+                    for (0..T3count) |_| {
+                        const T4count = @popCount(Lbod[LT3i]);
+                        assert(NT3[NT3i] == 0);
+                        assert(T4count > 0);
+                        LT3i += 1;
+                        NT3i += 1;
+                        LT4i += T4count;
+                        NT4i += T4count;
+                    }
+                } else {
+                    assert(RT1m.isElem(e2));
+                    assert(NT2[e2] == 0);
+                    assert(!NLeadMask.isElem(e2));
+                    const T3count = @popCount(Rbod[RT2i]);
+                    RT2i -= 1;
+                    assert(T3count > 0);
+                    for (0..T3count) |_| {
+                        const T4count = @popCount(Rbod[RT3i]);
+                        RT3i += 1;
+                        assert(T4count > 0);
+                        RT4i += T4count;
+                    }
+                }
+            } // end T2 iter
+            // Postconditions
+            assert(NT4i == NT4.len);
+            assert(LT3i == L.t3_3c_start());
+            assert(RT3i == R.t3_3c_start());
+            assert(NT3i == L.t3_3c_start() - L.t3start());
+            assert(LT4i == Lbod.len);
+            assert(RT4i == Rbod.len);
+            assert(RT2i == R.t2start() + @popCount(Rbod[LEAD] & MASK_OUT_FOUR) - 1);
+            assert(LT2i == L.t2start() + @popCount(Lbod[LEAD] & MASK_OUT_FOUR) - 1);
+            assert(NT3.len >= popCountSlice(NT2[TWO_MAX..]));
+        } // end T4
+        header[LEAD] = NLeadMask.m;
+        // these two are only used in debug mode, should be elided otherwise
+        const popT3 = popCountSlice(NT2[TWO_MAX..]);
+        const popT4 = popCountSlice(NT2[THREE_MAX..]);
+        const T2c = compactSlice(&NT2);
+        const T2end = 4 + T2c.len;
+        const T3c = compactSlice(NT3);
+        assert(T3c.len == popT3);
         const T3end = T2end + T3c.len;
         const T4c = compactSlice(NT4);
         if (T4c.len != 0)
