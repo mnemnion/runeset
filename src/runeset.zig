@@ -1655,27 +1655,27 @@ pub const RuneSet = struct {
                             assert(RT2m.isElem(e3));
                             RT3i += 1;
                         }
-                    } else if (LT1m.isElem(e2)) {
-                        LT3i += @popCount(Lbod[LT2i]);
-                        NT3i += @popCount(Lbod[LT2i]);
-                        LT2i -= 1;
-                    } else {
-                        assert(RT1m.isElem(e2));
-                        RT3i += @popCount(Rbod[RT2i]);
-                        RT2i -= 1;
                     }
                     NT2[e2] = NT2m.m;
                     // might have started zero, but if not:
                     if (NT2[e2] == 0 and NLeadMask.isElem(e2)) {
                         NLeadMask.remove(codeunit(e2));
                     }
+                } else if (LT1m.isElem(e2)) {
+                    LT3i += @popCount(Lbod[LT2i]);
+                    NT3i += @popCount(Lbod[LT2i]);
+                    LT2i -= 1;
+                } else {
+                    assert(RT1m.isElem(e2));
+                    RT3i += @popCount(Rbod[RT2i]);
+                    RT2i -= 1;
                 }
             }
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
             assert(NT3i == NT3.len);
-            assert(LT2i == 3 + @popCount(Lbod[LEAD] & MASK_IN_TWO));
-            assert(RT2i == 3 + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(LT2i == L.t2start() - 1 + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(RT2i == R.t2start() - 1 + @popCount(Rbod[LEAD] & MASK_IN_TWO));
         }
         if (NLeadMask.m & MASK_IN_FOUR == 0) {
             header[LEAD] = NLeadMask.m;
