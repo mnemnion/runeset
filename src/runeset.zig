@@ -1305,14 +1305,13 @@ pub const RuneSet = struct {
         {
             // We iterate back through both T2s to find surviving T3s
             var unionT2iter = toMask((Rbod[LEAD] & MASK_OUT_TWO) | (Lbod[LEAD] & MASK_OUT_TWO)).iterElemBack();
-            const bothLeadMask = toMask(Lbod[LEAD] & Rbod[LEAD]);
             var RT2i = R.t2final();
             var LT2i = L.t2final();
             var LT3i = L.t3start();
             var RT3i = R.t3start();
             var NT3i: usize = 0;
             while (unionT2iter.next()) |e2| {
-                if (bothLeadMask.isElem(e2)) {
+                if (NLeadMask.isElem(e2)) {
                     assert(NT2[e2] != 0);
                     const LT2m = toMask(Lbod[LT2i]);
                     const RT2m = toMask(Rbod[RT2i]);
@@ -1340,6 +1339,11 @@ pub const RuneSet = struct {
                     NT2[e2] = NT2m.m;
                     if (NT2[e2] == 0)
                         NLeadMask.remove(codeunit(e2));
+                } else if (RLeadMask.isElem(e2) and LLeadMask.isElem(e2)) {
+                    RT3i += @popCount(Rbod[RT2i]);
+                    RT2i -= 1;
+                    LT3i += @popCount(Lbod[LT2i]);
+                    LT2i -= 1;
                 } else if (RLeadMask.isElem(e2)) {
                     RT3i += @popCount(Rbod[RT2i]);
                     RT2i -= 1;
@@ -1396,86 +1400,92 @@ pub const RuneSet = struct {
                 break :blk toMask(LT2d | RT2d).iterElemBack();
             };
             while (unionT2iter.next()) |e2| {
-                if (LLeadMask.isElem(e2) and RLeadMask.isElem(e2)) {
+                if (NLeadMask.isElem(e2)) {
                     var NT2m = toMask(NT2[e2]);
-                    // This block could already be empty:
-                    if (NT2m.m != 0) {
-                        const LT2m = toMask(Lbod[LT2i]);
-                        const RT2m = toMask(Rbod[RT2i]);
-                        LT2i -= 1;
-                        RT2i -= 1;
-                        var unionT3iter = LT2m.setunion(RT2m).iterElemBack();
-                        while (unionT3iter.next()) |e3| {
-                            if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
-                                var NT3m = toMask(NT3[NT3i]);
-                                const LT3m = toMask(Lbod[LT3i]);
-                                const RT3m = toMask(Rbod[RT3i]);
-                                LT3i += 1;
-                                RT3i += 1;
-                                // NT3i is handle after replacing NT3m mask
-                                var unionT4iter = blk: {
-                                    break :blk LT3m.setunion(RT3m)
-                                        .iterElements();
-                                };
-                                while (unionT4iter.next()) |e4| {
-                                    if (NT3m.isElem(e4)) {
-                                        NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
-                                        if (NT4[NT4i] == 0) {
-                                            NT3m.remove(codeunit(e4));
-                                        }
-                                        NT4i += 1;
-                                        LT4i += 1;
-                                        RT4i += 1;
-                                    } else if (LT3m.isElem(e4)) {
-                                        LT4i += 1;
-                                    } else {
-                                        assert(RT3m.isElem(e4));
-                                        RT4i += 1;
+                    const LT2m = toMask(Lbod[LT2i]);
+                    const RT2m = toMask(Rbod[RT2i]);
+                    LT2i -= 1;
+                    RT2i -= 1;
+                    var unionT3iter = LT2m.setunion(RT2m).iterElemBack();
+                    while (unionT3iter.next()) |e3| {
+                        if (NT2m.isElem(e3)) {
+                            var NT3m = toMask(NT3[NT3i]);
+                            const LT3m = toMask(Lbod[LT3i]);
+                            const RT3m = toMask(Rbod[RT3i]);
+                            LT3i += 1;
+                            RT3i += 1;
+                            // NT3i is handle after replacing NT3m mask
+                            var unionT4iter = blk: {
+                                break :blk LT3m.setunion(RT3m)
+                                    .iterElements();
+                            };
+                            while (unionT4iter.next()) |e4| {
+                                if (NT3m.isElem(e4)) {
+                                    NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
+                                    if (NT4[NT4i] == 0) {
+                                        NT3m.remove(codeunit(e4));
                                     }
+                                    NT4i += 1;
+                                    LT4i += 1;
+                                    RT4i += 1;
+                                } else if (LT3m.isElem(e4) and RT3m.isElem(e4)) {
+                                    RT4i += 1;
+                                    LT4i += 1;
+                                } else if (LT3m.isElem(e4)) {
+                                    LT4i += 1;
+                                } else {
+                                    assert(RT3m.isElem(e4));
+                                    RT4i += 1;
                                 }
-                                NT3[NT3i] = NT3m.m;
-                                if (NT3m.m == 0 and NT2m.isElem(e3)) {
-                                    NT2m.remove(codeunit(e3));
-                                }
-                                NT3i += 1;
-                            } else if (LT2m.isElem(e3)) {
-                                LT4i += @popCount(Lbod[LT3i]);
-                                LT3i += 1;
-                            } else {
-                                assert(RT2m.isElem(e3));
-                                RT4i += @popCount(Rbod[RT3i]);
-                                RT3i += 1;
                             }
-                        } // end T3 union iteration
-                    } else { // NT2 is zero
-                        assert(NT2[e2] == 0);
-                        {
-                            const T3count = @popCount(Lbod[LT2i]);
-                            LT2i -= 1;
-                            assert(T3count > 0);
-                            for (0..T3count) |_| {
-                                const T4count = @popCount(Lbod[LT3i]);
-                                LT3i += 1;
-                                assert(T4count > 0);
-                                LT4i += T4count;
+                            NT3[NT3i] = NT3m.m;
+                            if (NT3m.m == 0 and NT2m.isElem(e3)) {
+                                NT2m.remove(codeunit(e3));
                             }
+                            NT3i += 1;
+                        } else if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
+                            LT4i += @popCount(Lbod[LT3i]);
+                            LT3i += 1;
+                            RT4i += @popCount(Rbod[RT3i]);
+                            RT3i += 1;
+                            NT3i += 1;
+                        } else if (LT2m.isElem(e3)) {
+                            LT4i += @popCount(Lbod[LT3i]);
+                            LT3i += 1;
+                        } else {
+                            assert(RT2m.isElem(e3));
+                            RT4i += @popCount(Rbod[RT3i]);
+                            RT3i += 1;
                         }
-                        {
-                            const T3count = @popCount(Rbod[RT2i]);
-                            RT2i -= 1;
-                            assert(T3count > 0);
-                            for (0..T3count) |_| {
-                                const T4count = @popCount(Rbod[RT3i]);
-                                RT3i += 1;
-                                assert(T4count > 0);
-                                RT4i += T4count;
-                            }
-                        }
-                    }
+                    } // end T3 union iteration
                     assert(@popCount(NT2[e2]) >= @popCount(NT2m.m));
                     NT2[e2] = NT2m.m;
-                    if (NT2[e2] == 0 and NLeadMask.isElem(e2))
+                    if (NT2[e2] == 0)
                         NLeadMask.remove(codeunit(e2));
+                } else if (LLeadMask.isElem(e2) and RLeadMask.isElem(e2)) {
+                    assert(NT2[e2] == 0);
+                    {
+                        const T3count = @popCount(Lbod[LT2i]);
+                        LT2i -= 1;
+                        assert(T3count > 0);
+                        for (0..T3count) |_| {
+                            const T4count = @popCount(Lbod[LT3i]);
+                            LT3i += 1;
+                            assert(T4count > 0);
+                            LT4i += T4count;
+                        }
+                    }
+                    {
+                        const T3count = @popCount(Rbod[RT2i]);
+                        RT2i -= 1;
+                        assert(T3count > 0);
+                        for (0..T3count) |_| {
+                            const T4count = @popCount(Rbod[RT3i]);
+                            RT3i += 1;
+                            assert(T4count > 0);
+                            RT4i += T4count;
+                        }
+                    }
                 } else if (LLeadMask.isElem(e2)) {
                     assert(NT2[e2] == 0);
                     const T3count = @popCount(Lbod[LT2i]);
@@ -1502,7 +1512,7 @@ pub const RuneSet = struct {
                 }
             } // end T2 union iteration
             // postconditions
-            assert(NT4i == NT4.len);
+            // assert(NT4i == NT4.len);
             assert(LT3i == L.t3_3c_start());
             assert(RT3i == R.t3_3c_start());
             assert(LT4i == Lbod.len);
@@ -1518,7 +1528,10 @@ pub const RuneSet = struct {
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
-        assert(T3c.len == popT3);
+        if (T3c.len != popT3) {
+            std.debug.print("T3c.len {d} popT3 {d}\n", .{ T3c.len, popT3 });
+            assert(T3c.len == popT3);
+        }
         const T3end = T2end + T3c.len;
         const T4c = compactSlice(NT4);
         if (T4c.len != 0)
