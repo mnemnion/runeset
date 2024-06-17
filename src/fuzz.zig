@@ -16,10 +16,10 @@ const RuneSet = runeset.RuneSet;
 // const FUZZ_TIME = std.math.maxInt(u16);
 
 // this option takes about 30 seconds on my laptop
-// const FUZZ_TIME = std.math.pow(u64, 2, 24);
+const FUZZ_TIME = std.math.pow(u64, 2, 24);
 
 // for overkill, we offer the following, six minutes of crunch:
-const FUZZ_TIME = std.math.pow(u64, 2, 28);
+// const FUZZ_TIME = std.math.pow(u64, 2, 28);
 
 // this will not complete in an amount of time worth dedicating
 // to the task: estimated 25 hours.  expensive space heater
@@ -36,7 +36,7 @@ const FUZZ_TIME = std.math.pow(u64, 2, 28);
 /// adequate: even 2^16 runs should have this outcome 64 times on average.
 ///
 /// We swallow any InvalidUnicode errors, and repeat.
-fn bruteFuzzAndIgnorance(alloc: std.mem.Allocator) !void {
+pub fn bruteFuzzAndIgnorance(alloc: std.mem.Allocator) !void {
     var count: usize = 0;
     var buf: [6]u8 = undefined;
     var prng = std.Random.DefaultPrng.init(blk: {
@@ -65,10 +65,4 @@ fn bruteFuzzAndIgnorance(alloc: std.mem.Allocator) !void {
     const percent: f64 = @as(f64, @floatFromInt(count_completed)) / @as(f64, @floatFromInt(FUZZ_TIME));
     std.debug.print("\nfuzzed\n", .{});
     std.debug.print("completed {d} sets in {d} attempts, {d:<.2}%\n", .{ count_completed, FUZZ_TIME, percent * 100 });
-}
-
-test "fuzz the puppy" {
-    const allocator = std.testing.allocator;
-    try bruteFuzzAndIgnorance(allocator);
-    try std.testing.expect(true);
 }

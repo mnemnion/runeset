@@ -58,6 +58,13 @@ pub fn build(b: *std.Build) void {
         run_cmd.addArgs(args);
     }
 
+    const options = b.addOptions();
+    if (b.option(bool, "test-more", "run more extensive tests") orelse false) {
+        options.addOption(bool, "test_more", true);
+    } else {
+        options.addOption(bool, "test_more", false);
+    }
+
     // This creates a build step. It will be visible in the `zig build --help` menu,
     // and can be selected like this: `zig build run`
     // This will evaluate the `run` step rather than the default, which is "install".
@@ -73,6 +80,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
+    lib_unit_tests.root_module.addOptions("config", options);
 
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),

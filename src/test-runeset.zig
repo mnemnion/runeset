@@ -4,6 +4,7 @@
 //! level.
 
 const std = @import("std");
+const config = @import("config");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 
@@ -497,4 +498,26 @@ const rand2 = data.rand2;
 
 test "data integrity" {
     try std.testing.expectEqualStrings(pua_A_chunk.str, pua_A_feather.str);
+}
+
+const t_ext = @import("test-data-ext.zig");
+const fuzz = @import("fuzz.zig");
+
+test "big test energy" {
+    if (config.test_more) {
+        const allocator = std.testing.allocator;
+        const testudo = t_ext.mucho_testo[0..];
+        var i: usize = 0;
+        for (testudo) |t| {
+            i += 1;
+            try verifyLRSets(t, allocator);
+        }
+    }
+}
+
+test "fuzz set creation" {
+    if (config.test_more) {
+        const allocator = std.testing.allocator;
+        try fuzz.bruteFuzzAndIgnorance(allocator);
+    }
 }
