@@ -1612,7 +1612,7 @@ pub const RuneSet = struct {
         }
         // Tier 3
         const bothT1m = toMask(Rbod[LEAD] & Lbod[LEAD]);
-        const NT3 = try allocator.alloc(u64, L.t3slice().len);
+        const NT3 = try allocator.alloc(u64, L.t3slice().?.len);
         defer allocator.free(NT3);
         @memset(NT3, 0);
         {
@@ -1636,8 +1636,8 @@ pub const RuneSet = struct {
                     const bothT2m = LT2m.intersection(RT2m);
                     LT2i -= 1;
                     RT2i -= 1;
-                    const unionT3iter = LT2m.setunion(RT2m).iterElemBack();
-                    while (unionT3iter) |e3| {
+                    var unionT3iter = LT2m.setunion(RT2m).iterElemBack();
+                    while (unionT3iter.next()) |e3| {
                         if (bothT2m.isElem(e3)) {
                             if (NT2m.isElem(e3)) {
                                 NT3[NT3i] = Rbod[RT3i] & Lbod[LT3i];
@@ -1692,7 +1692,7 @@ pub const RuneSet = struct {
         }
         // Tier 4
         // Once again, reference on L
-        const NT4 = try allocator.alloc(u64, L.t4slice().len);
+        const NT4 = try allocator.alloc(u64, L.t4slice().?.len);
         defer allocator.free(NT4);
         @memset(NT4, 0);
         {
@@ -1722,14 +1722,14 @@ pub const RuneSet = struct {
                     const bothT2m = LT2m.intersection(RT2m);
                     LT2i -= 1;
                     RT2i -= 1;
-                    const unionT3iter = LT2m.setunion(RT2m).iterElemBack();
-                    while (unionT3iter) |e3| {
+                    var unionT3iter = LT2m.setunion(RT2m).iterElemBack();
+                    while (unionT3iter.next()) |e3| {
                         if (bothT2m.isElem(e3)) {
-                            var NT3m = NT3[NT3i];
-                            const LT3m = Lbod[LT3i];
-                            const RT3m = Rbod[RT3i];
+                            var NT3m = toMask(NT3[NT3i]);
+                            const LT3m = toMask(Lbod[LT3i]);
+                            const RT3m = toMask(Rbod[RT3i]);
                             const bothT3m = LT3m.intersection(RT3m);
-                            const unionT4iter = LT3m.setunion(RT3m).iterElements();
+                            var unionT4iter = LT3m.setunion(RT3m).iterElements();
                             while (unionT4iter.next()) |e4| {
                                 if (bothT3m.isElem(e4)) {
                                     if (NT3m.isElem(e4)) {
