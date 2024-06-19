@@ -1429,12 +1429,11 @@ pub const RuneSet = struct {
                             var NT3m = toMask(NT3[NT3i]);
                             const LT3m = toMask(Lbod[LT3i]);
                             const RT3m = toMask(Rbod[RT3i]);
-                            const bothT3m = LT3m.intersection(RT3m);
+                            // NT3[NT3i] was created as this intersection:
+                            assert(NT3m.m == LT3m.intersection(RT3m).m);
                             var unionT4iter = LT3m.setunion(RT3m).iterElements();
                             while (unionT4iter.next()) |e4| {
-                                if (bothT3m.isElem(e4)) {
-                                    // NT3 was created via intersection, so:
-                                    assert(NT3m.isElem(e4));
+                                if (NT3m.isElem(e4)) {
                                     NT4[NT4i] = Lbod[LT4i] & Rbod[RT4i];
                                     if (NT4[NT4i] == 0) {
                                         NT3m.remove(codeunit(e4));
