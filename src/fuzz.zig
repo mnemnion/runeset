@@ -42,6 +42,7 @@ pub fn bruteFuzzAndIgnorance(alloc: std.mem.Allocator) !void {
     var prng = std.Random.DefaultPrng.init(blk: {
         var seed: u64 = undefined;
         try std.posix.getrandom(std.mem.asBytes(&seed));
+        std.debug.print("Fuzz with seed: 0x{x:0>16}\n", .{seed});
         break :blk seed;
     });
     const rand = prng.random();
@@ -63,6 +64,5 @@ pub fn bruteFuzzAndIgnorance(alloc: std.mem.Allocator) !void {
         }
     }
     const percent: f64 = @as(f64, @floatFromInt(count_completed)) / @as(f64, @floatFromInt(FUZZ_TIME));
-    std.debug.print("\nfuzzed\n", .{});
     std.debug.print("completed {d} sets in {d} attempts, {d:<.2}%\n", .{ count_completed, FUZZ_TIME, percent * 100 });
 }

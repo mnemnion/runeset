@@ -81,6 +81,7 @@ pub fn build(b: *std.Build) void {
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
     lib_unit_tests.root_module.addOptions("config", options);
+    run_lib_unit_tests.has_side_effects = true;
 
     const exe_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/main.zig"),

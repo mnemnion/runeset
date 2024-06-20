@@ -1,0 +1,84 @@
+<svg xmlns='http://www.w3.org/2000/svg' class="pikchr" id="pikchr-461a01e00a" viewBox="0 0 436.32 256.23">
+<path class="box H1" d="M2.16,130.95L110.16,130.95L110.16,58.95L2.16,58.95Z" fill="transparent" stroke-width="2.16" stroke="rgb(0,0,0)" />
+<text class="box H1" x="56.16" y="84.87" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">LOW</text>
+<text class="box H1" x="56.16" y="105.03" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">0-3f</text>
+<path class="box H2" d="M110.16,130.95L218.16,130.95L218.16,58.95L110.16,58.95Z" fill="transparent" stroke-width="2.16" stroke="rgb(0,0,0)" />
+<text class="box H2" x="164.16" y="84.87" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">HI</text>
+<text class="box H2" x="164.16" y="105.03" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">40-7f</text>
+<path class="box H3" d="M218.16,130.95L326.16,130.95L326.16,58.95L218.16,58.95Z" fill="transparent" stroke-width="2.16" stroke="rgb(0,0,0)" />
+<text class="box H3" x="272.16" y="84.87" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">LEAD</text>
+<text class="box H3" x="272.16" y="105.03" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">c2-f4</text>
+<path class="box H4" d="M326.16,130.95L434.16,130.95L434.16,58.95L326.16,58.95Z" fill="transparent" stroke-width="2.16" stroke="rgb(0,0,0)" />
+<text class="box H4" x="380.16" y="84.87" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">T4 Offset</text>
+<text class="box H4" x="380.16" y="105.03" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">or 0</text>
+<text class="text" x="223.2" y="22.95" text-anchor="middle" fill="rgb(0,0,0)" font-size="156.25%" dominant-baseline="central">Header:</text>
+<text class="text" x="56.16" y="153.27" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">0</text>
+<text class="text" x="175.162" y="153.27" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">1</text>
+<text class="text" x="283.162" y="153.27" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">2</text>
+<text class="text" x="391.162" y="153.27" text-anchor="middle" fill="rgb(0,0,0)" dominant-baseline="central">3</text>
+<path class="box" d="M2.16,254.07L3.6,254.07L3.6,196.47L2.16,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M3.6,254.07L5.04,254.07L5.04,196.47L3.6,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M5.04,254.07L6.48,254.07L6.48,196.47L5.04,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M6.48,254.07L7.92,254.07L7.92,196.47L6.48,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M7.92,254.07L9.36,254.07L9.36,196.47L7.92,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M9.36,254.07L10.8,254.07L10.8,196.47L9.36,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M10.8,254.07L12.24,254.07L12.24,196.47L10.8,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M12.24,254.07L13.68,254.07L13.68,196.47L12.24,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M13.68,254.07L15.12,254.07L15.12,196.47L13.68,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M15.12,254.07L16.56,254.07L16.56,196.47L15.12,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M16.56,254.07L18,254.07L18,196.47L16.56,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M18,254.07L19.44,254.07L19.44,196.47L18,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M19.44,254.07L20.88,254.07L20.88,196.47L19.44,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M20.88,254.07L22.32,254.07L22.32,196.47L20.88,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M22.32,254.07L23.76,254.07L23.76,196.47L22.32,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M23.76,254.07L25.2,254.07L25.2,196.47L23.76,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M25.2,254.07L26.64,254.07L26.64,196.47L25.2,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M26.64,254.07L28.08,254.07L28.08,196.47L26.64,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M28.08,254.07L29.52,254.07L29.52,196.47L28.08,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M29.52,254.07L30.96,254.07L30.96,196.47L29.52,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M30.96,254.07L32.4,254.07L32.4,196.47L30.96,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M32.4,254.07L33.84,254.07L33.84,196.47L32.4,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M33.84,254.07L35.28,254.07L35.28,196.47L33.84,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M35.28,254.07L36.72,254.07L36.72,196.47L35.28,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M36.72,254.07L38.16,254.07L38.16,196.47L36.72,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M38.16,254.07L39.6,254.07L39.6,196.47L38.16,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M39.6,254.07L41.04,254.07L41.04,196.47L39.6,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M41.04,254.07L42.48,254.07L42.48,196.47L41.04,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M42.48,254.07L43.92,254.07L43.92,196.47L42.48,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M43.92,254.07L45.36,254.07L45.36,196.47L43.92,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M45.36,254.07L46.8,254.07L46.8,196.47L45.36,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M46.8,254.07L48.24,254.07L48.24,196.47L46.8,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M48.24,254.07L49.68,254.07L49.68,196.47L48.24,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M49.68,254.07L51.12,254.07L51.12,196.47L49.68,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M51.12,254.07L52.56,254.07L52.56,196.47L51.12,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M52.56,254.07L54,254.07L54,196.47L52.56,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M54,254.07L55.44,254.07L55.44,196.47L54,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M55.44,254.07L56.88,254.07L56.88,196.47L55.44,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M56.88,254.07L58.32,254.07L58.32,196.47L56.88,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M58.32,254.07L59.76,254.07L59.76,196.47L58.32,196.47Z" fill="rgb(255,0,0)" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M59.76,254.07L61.2,254.07L61.2,196.47L59.76,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M61.2,254.07L62.64,254.07L62.64,196.47L61.2,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M62.64,254.07L64.08,254.07L64.08,196.47L62.64,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M64.08,254.07L65.52,254.07L65.52,196.47L64.08,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M65.52,254.07L66.96,254.07L66.96,196.47L65.52,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M66.96,254.07L68.4,254.07L68.4,196.47L66.96,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M68.4,254.07L69.84,254.07L69.84,196.47L68.4,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M69.84,254.07L71.28,254.07L71.28,196.47L69.84,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M71.28,254.07L72.72,254.07L72.72,196.47L71.28,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M72.72,254.07L74.16,254.07L74.16,196.47L72.72,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M74.16,254.07L75.6,254.07L75.6,196.47L74.16,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M75.6,254.07L77.04,254.07L77.04,196.47L75.6,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M77.04,254.07L78.48,254.07L78.48,196.47L77.04,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M78.48,254.07L79.92,254.07L79.92,196.47L78.48,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M79.92,254.07L81.36,254.07L81.36,196.47L79.92,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M81.36,254.07L82.8,254.07L82.8,196.47L81.36,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M82.8,254.07L84.24,254.07L84.24,196.47L82.8,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M84.24,254.07L85.68,254.07L85.68,196.47L84.24,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M85.68,254.07L87.12,254.07L87.12,196.47L85.68,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M87.12,254.07L88.56,254.07L88.56,196.47L87.12,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M88.56,254.07L90,254.07L90,196.47L88.56,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M90,254.07L91.44,254.07L91.44,196.47L90,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M91.44,254.07L92.88,254.07L92.88,196.47L91.44,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+<path class="box" d="M92.88,254.07L94.32,254.07L94.32,196.47L92.88,196.47Z" fill="transparent" stroke-width="0.291627" stroke="rgb(0,0,0)" />
+</svg>
+
