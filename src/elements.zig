@@ -372,6 +372,22 @@ pub const Mask = struct {
         }
     }
 
+    /// Return the next element of the Mask.
+    /// It is illegal to pass this function a nonexistent element.
+    pub inline fn after(self: Mask, cu: CodeUnit) ?CodeUnit {
+        std.debug.assert(self.isIn(cu));
+        const kind = cu.kind;
+        var next: u6 = cu.body + 1;
+        while (true) {
+            if (self.isElem(next)) {
+                return CodeUnit{ .kind = kind, .body = next };
+            }
+            if (next == 63) break;
+            next += 1;
+        }
+        return null;
+    }
+
     /// Return a forward iterator of elements (u6) in the Mask.
     pub fn iterElements(self: Mask) MaskElements {
         return MaskElements{ .mask = self };
@@ -559,6 +575,9 @@ test "mask tests" {
     try expectEqual(mask.higherThan(B).?, 2);
     try expectEqual(mask.lowerThan(D), 1);
     try expectEqual(mask.lowerThan(codeunit('?')), null);
+    try expectEqual(D, mask.after(B).?);
+    try expectEqual(Z, mask.after(D).?);
+    try expectEqual(null, mask.after(Z));
     var mIter = mask.iterElements();
     try expectEqual(B.body, mIter.next().?);
     try expectEqual(D.body, mIter.next().?);
