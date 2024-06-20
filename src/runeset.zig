@@ -27,6 +27,7 @@ const toMask = Mask.toMask;
 pub const CodeUnit = elements.CodeUnit;
 /// codeunit(:u8) creates a CodeUnit
 pub const codeunit = elements.codeunit;
+pub const Rune = elements.Rune;
 
 /// Error indicating that a string for construction a RuneSet contains
 /// invalid Unicode.
@@ -244,7 +245,7 @@ pub const RuneSet = struct {
         }
     }
 
-    /// Free the memory allocated for a RuneSet
+    /// Free the memory allocated for a RuneSet.
     pub fn deinit(self: RuneSet, alloc: Allocator) void {
         alloc.free(self.body);
     }
@@ -371,10 +372,15 @@ pub const RuneSet = struct {
     }
 
     /// Match one rune at the beginning of the slice.
-    /// This is safe to use with invalid UTF-8, and will return null if
-    /// such is encountered.
-    /// The normal return value is the number of bytes matched.
-    /// Zero means that the rune beginning the slice was not a match.
+    /// This is safe to use with invalid UTF-8, and will return `null` if
+    /// such is encountered.  The normal return value is the number of bytes
+    /// matched.  Zero means that the rune beginning the slice was not a match.
+    ///
+    /// Note: this function doesn't double as a UTF-8 validator, because it
+    /// will return 0 for overlong encodings, and code unit sequences which
+    /// represent codepoints which aren't scalar values (surrogates).  It's
+    /// more about what it *won't* do, namely, spuriously detect invalid data
+    /// as a match, or read past the buffer for a truncated multibyte sequence.
     pub fn matchOne(self: RuneSet, slice: []const u8) ?usize {
         return matchOneDirectly(self.body, slice);
     }
@@ -387,19 +393,19 @@ pub const RuneSet = struct {
     }
 
     /// Match one rune at the beginning of the slice.  Assumes the slice is
-    /// valid UTF-8.  It is legal to call this function if the byte at [0]
+    /// valid UTF-8.  It is legal to call this function if the byte at `[0]`
     /// is not the lead byte of a sequence.  Returns number of bytes matched.
     ///
     /// Note: in debug mode, this will panic if it encounters invalid UTF-8.
     /// In release mode, it can return nonsense results, or read beyond the
-    /// buffer if called on a truncated codepoitn.
+    /// buffer if called on a truncated codepoint.
     pub fn matchOneAssumeValid(self: RuneSet, slice: []const u8) usize {
         return matchOneDirectAssumeValid(self.body, slice);
     }
 
     /// Match as many runes as possible starting from the beginning of
     /// the slice.  Returns the number of bytes matched.
-    /// Safe to use on invalid UTF-8, returning null if any is found.
+    /// Safe to use on invalid UTF-8, returning `null` if any is found.
     pub fn matchMany(self: RuneSet, slice: []const u8) ?usize {
         var idx: usize = 0;
         while (idx < slice.len) {
@@ -454,7 +460,7 @@ pub const RuneSet = struct {
         return true;
     }
 
-    /// A logging equality test, for testing purposes
+    /// A logging equality test, for debugging purposes.
     pub fn expectEqualTo(self: RuneSet, other: RuneSet) bool {
         if (self.body.len != other.body.len) {
             std.debug.print("L.len {d} != R.len {d}\n", .{ self.body.len, other.body.len });
@@ -485,7 +491,7 @@ pub const RuneSet = struct {
     }
 
     // Return a tuple counting number of one, two, three, and four
-    // byte codepoints
+    // byte codepoints.
     fn counts(self: RuneSet) struct { usize, usize, usize, usize } {
         var c: [4]u64 = .{0} ** 4;
         c[0] = popCountSlice(self.body[LOW..LEAD]);
@@ -505,8 +511,7 @@ pub const RuneSet = struct {
         return a + b + c + d;
     }
 
-    /// Return a count of codunits (u8) in set.
-    ///
+    /// Return a count of codunits (`u8`) in set.
     /// This is the required length of buffer for a slice passed to
     /// `runeset.toString(buf)`.
     pub fn codeunitCount(self: RuneSet) usize {
@@ -631,26 +636,33 @@ pub const RuneSet = struct {
     //|
     //| ## Vocabulary
     //|
-    //| The variables used here are terse, but follow a fairly consistent syntax.
+    //| The variables used here are terse, but follow a consistent syntax.
     //|
     //| The receiver is L, the comparator is R, and the new set is N.
     //|
     //| We refer to the tiers as header (T1), T2, T3, and T4.  These contain
-    //| bitmasks for any byte of that order in a codepoint's sequence.
+    //| bitmasks for any byte of that order in a codepoint's sequence.  The
+    //| first four words of any RuneSet, the header, are LOW, HI, LEAD, and
+    //| T4_OFF, so some variables related to a LEAD word will have Lead in
+    //| their name.
     //|
     //| We call the codepoints a (not used), b, c, and d, depending on how many
     //| bytes they have in total.  Thus, a d byte of the T2 tier is the second byte
-    //| of a four-byte codeunit.
+    //| of a four-byte codeunit.  So e.g. 2 is the 2nd byte of any sequence, and b
+    //| means that sequence only has two bytes, no matter where we are in said
+    //| sequence.
     //|
     //| Abbreviations: i for index, m for mask, e for element, len for length,
     //| iter for an iterator. c at the end of a tier means that tier is compacted.
     //|
     //| Examples: NT3i is an index into the T3 tier of N, our new set.
-    //| e2 is an element of T2.  NT3_d_len is the length of the d region of
-    //| NT3.  eRT3m is a mask of an element of R's T3.
+    //| e2 is an element of some T2, meaning, that T2 will have a mask for
+    //| b bytes with e2 as the lead.  NT3_d_len is the length of the d region of
+    //| NT3.  RT3m is a mask for element of R's T3, this is created from the
+    //| *T2* region of R.
 
-    /// Union of two RuneSets.
-    ///
+    /// Union of two `RuneSet`s.
+    /// Free returned memory with `set.deinit(allocator)`.
     pub fn setUnion(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
         var header: [4]u64 = .{0} ** 4;
         const Lbod = L.body;
@@ -688,9 +700,9 @@ pub const RuneSet = struct {
             // to which sets.
             const LT1m = toMask(Lbod[LEAD]);
             const RT1m = toMask(Rbod[LEAD]);
-            const both_T1m = toMask(Lbod[LEAD] & Rbod[LEAD]);
-            assert(both_T1m.m == LT1m.intersection(RT1m).m);
-            // Track progressive offsets into T3s
+            const bothT1m = toMask(Lbod[LEAD] & Rbod[LEAD]);
+            assert(bothT1m.m == LT1m.intersection(RT1m).m);
+            // Track T3 offsets forward
             var NT3i: usize = 0;
             var LT3i = L.t3start();
             var RT3i = R.t3start();
@@ -700,7 +712,7 @@ pub const RuneSet = struct {
             var unionT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
             assert(unionT2iter.mask.m == (Lbod[LEAD] & MASK_OUT_TWO) | (Rbod[LEAD] & MASK_OUT_TWO));
             while (unionT2iter.next()) |e2| {
-                if (both_T1m.isElem(e2)) {
+                if (bothT1m.isElem(e2)) {
                     // Reverse-iterate the mask and test membership
                     const LT2m = toMask(Lbod[LT2i]);
                     const RT2m = toMask(Rbod[RT2i]);
@@ -745,13 +757,13 @@ pub const RuneSet = struct {
                     }
                     RT2i -= 1;
                 }
-            } // Sanity checks:
+            } // Postconditions:
             assert(LT2i == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
             assert(RT2i == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
             assert(NT3i == NT3.len);
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
-        } // end T3 rank block
+        } // end T3 rank
         if (L.noFourBytes() and R.noFourBytes()) {
             const T2c = compactSlice(&NT2);
             const T2end = 4 + T2c.len;
@@ -935,8 +947,8 @@ pub const RuneSet = struct {
         return RuneSet{ .body = Nbod };
     }
 
-    /// Return difference of receiver and argument as new set.
-    /// Calling context owns the memory.
+    /// Set difference: the receiver, minus the members of the argument.
+    /// Free returned memory with `set.deinit(allocator)`.
     pub fn setDifference(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
         var header: [4]u64 = undefined;
         const Lbod = L.body;
@@ -1246,23 +1258,9 @@ pub const RuneSet = struct {
         return RuneSet{ .body = Nbod };
     }
 
-    /// Return intersection of receiver with first argument.
-    /// Calling context owns memory.
-
-    // Set intersection rewrite
-    // The left side is now the reference: every time we find something
-    // in L, that means we move N.  That way we can progressively thin
-    // out N, without the lost data making it exceptionally intricate and
-    // bug-prone to work through the high tiers.
-    // That's really all it will take, we squash it at the end and everything
-    // lines up.  Iterate the unions, test intersection, left, and right, with
-    // the usual distribution of logics.  If we have an intersection but the
-    // bit which triggers it is no longer in the set (from e.g. intersecting)
-    // NT2, then we just skip that zeroed-out section of NT3 or NT4.  Therefore
-    // we always know that the other bits exist, and so if their terminal mask
-    // hits zero, we can remove them.
-    /// Return intersection of receiver with first argument.
-    /// Calling context owns memory.
+    /// Set intersection: a new `RuneSet` containing the common members
+    /// of both sets provided.
+    /// Free returned memory with `set.deinit(allocator)`.
     pub fn setIntersection(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
         const Lbod = L.body;
         const Rbod = R.body;
@@ -1539,6 +1537,150 @@ pub const RuneSet = struct {
         @memcpy(Nbod[T2end..T3end], T3c);
         @memcpy(Nbod[T3end..setLen], T4c);
         return RuneSet{ .body = Nbod };
+    }
+};
+
+const RUNE_START: u32 = 0xffff_ffff;
+
+// Transform mask-stored bytes to their proper representation
+const HI_MASK = 0b0100_0000;
+const LEAD_MASK = 0b1100_0000;
+const FOLLOW_MASK = 0b1000_0000;
+
+/// Iterate a set's members, one Rune at a time,
+/// with `runeIterator.next()`
+pub const RuneIterator = struct {
+    last: Rune,
+    idx: usize,
+    set: RuneSet,
+
+    /// Create a RuneIterator.
+    pub fn init(set: RuneSet) RuneIterator {
+        // sentinel value (never valid)
+        return RuneIterator{
+            .last = @bitCast(RUNE_START),
+            .idx = 0,
+            .set = set,
+        };
+    }
+
+    pub fn next(iter: *RuneIterator) ?Rune {
+        const int_last: u32 = @intCast(iter.last);
+        if (int_last == RUNE_START) {
+            const rune = iter.setup();
+            // if this is null, no need to reset
+            return rune;
+        }
+        const rune = switch (iter.last.byteCount()) {
+            1 => iter.ascii(),
+            2 => iter.t2rune(),
+            3 => iter.t3rune(),
+            4 => iter.t4rune(),
+            else => unreachable,
+        };
+        if (rune) |r| {
+            return r;
+        } else {
+            // reset as safety measure
+            iter.last = @bitCast(RUNE_START);
+            iter.idx = 0;
+            return null;
+        }
+    }
+
+    fn setup(iter: *RuneIterator) ?Rune {
+        const Sbod = iter.set.body;
+        // set up the RuneIterator, and return when possible
+        assert(iter.idx == LOW);
+        var a: u8 = @ctz(Sbod[LOW]);
+        if (a < 64) {
+            // Low ASCII
+            iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
+            iter.idx = LOW;
+            return iter.last;
+        } else {
+            assert(Sbod[LOW] == 0);
+            a = @ctz(Sbod[HI]);
+            if (a < 64) {
+                // High ASCII, set .hi bit:
+                a |= HI_MASK;
+                iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
+                iter.idx = HI;
+                return iter.last;
+            }
+        }
+        return iter.setupHi();
+    }
+
+    pub fn setupHi(iter: *RuneIterator) ?Rune {
+        const Sbod = iter.set.body;
+        var a = @ctz(Sbod[LEAD]);
+        if (a == 64) {
+            // empty set
+            assert(Sbod[LEAD] == 0);
+            assert(Sbod[T4_OFF] == 0);
+            return null;
+        } else {
+            // Set .lead bits
+            a |= LEAD_MASK;
+            iter.idx = LEAD;
+        }
+        const a_cu = codeunit(a);
+        const nB = a_cu.nMultiBytes().?;
+        const lead_mask = toMask(Sbod[LEAD]);
+        const T2off = lead_mask.lowerThan(a_cu) + iter.set.t2start();
+        var b: u8 = @ctz(Sbod[T2off]);
+        assert(b < 64);
+        b |= FOLLOW_MASK;
+        if (nB == 2) {
+            iter.last = Rune{ .a = a, .b = b, .c = 0, .d = 0 };
+            iter.idx = T2off;
+            return iter.last;
+        }
+        assert(Sbod[LEAD] & MASK_OUT_TWO != 0);
+        // since we're setting up, c is at the end of T3:
+        const T3off = T2off + popCountSlice(iter.set.t2slice());
+        // first byte working backward now:
+        var c: u8 = @clz(Sbod[T3off]);
+        assert(c < 64);
+        c |= FOLLOW_MASK;
+        if (nB == 3) {
+            iter.last = Rune{ .a = a, .b = b, .c = c, .d = 0 };
+            iter.idx = T3off;
+            return iter.last;
+        }
+        assert(Sbod[LEAD] & MASK_IN_FOUR != 0);
+        // Lowest four is at the end:
+        const T4off = Sbod.len - 1;
+        var d: u8 = @clz(Sbod[T4off]);
+        assert(d < 64);
+        assert(nB == 4);
+        d |= FOLLOW_MASK;
+        iter.last = Rune{ .a = a, .b = b, .c = c, .d = d };
+        iter.idx = T4off;
+        return iter.last;
+    }
+
+    fn ascii(iter: *RuneIterator) ?Rune {
+        assert(iter.last.byteCount() == 1);
+        const a_cu = codeunit(iter.last.a);
+        const a_next = toMask(iter.set.body[iter.idx]).after(a_cu);
+        if (a_next) |a| {
+            iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
+            return iter.last;
+        }
+        iter.idx += 1;
+        if (iter.idx == HI) {
+            var a = @ctz(iter.self.body[HI]);
+            if (a == 64) {
+                return iter.setupHi();
+            }
+            a |= HI_MASK;
+            iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
+            return iter.last;
+        } else {
+            return iter.setupHi();
+        }
     }
 };
 
