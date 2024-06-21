@@ -208,7 +208,7 @@ pub const Rune = packed struct(u32) {
     /// corresponding to the integer value provided.  This includes
     /// invalid surrogates and noncharacters.  Throws an error if the
     /// integer is out of range.
-    pub fn fromCodepoint(cp: u32) !Rune {
+    pub fn fromCodepoint(cp: u21) !Rune {
         if (cp < A_MAX) {
             return Rune{
                 .a = @intCast(cp),
@@ -297,7 +297,15 @@ pub const Rune = packed struct(u32) {
         return 4;
     }
 
-    // TODO fromCodepoint, writeToWriter, isScalarValue, isCodepoint,
+    /// Test whether the Rune represents the provided codepoint
+    /// as encoded in UTF-8.  It is legal for the Rune to be
+    /// invalid UTF-8.
+    pub fn equalToCodepoint(self: Rune, cp: u21) bool {
+        const r_code = self.toCodepoint() catch return false;
+        return (r_code == cp);
+    }
+
+    // TODO writeToWriter, isScalarValue, isCodepoint,
     //
 };
 
@@ -655,6 +663,7 @@ test "rune tests" {
     try expectEqual(strA[0], rA.a);
     const rA2 = Rune.fromSlice(strA).?;
     try expectEqualDeep(rA, rA2);
+    try expect(rA.equalToCodepoint('A'));
     // greek Ω, U+3a9
     const rB = Rune.fromCodepoint(0x3a9) catch unreachable;
     try expectEqual(0xce, rB.a);
@@ -666,6 +675,7 @@ test "rune tests" {
     try expectEqual(strB[1], rB.b);
     const rB2 = Rune.fromSlice(strB).?;
     try expectEqualDeep(rB, rB2);
+    try expect(rB.equalToCodepoint('Ω'));
     // empty set ∅, U+2205
     const rC = Rune.fromCodepoint(0x2205) catch unreachable;
     try expectEqual(0xe2, rC.a);
@@ -679,6 +689,7 @@ test "rune tests" {
     try expectEqual(strC[2], rC.c);
     const rC2 = Rune.fromSlice(strC).?;
     try expectEqualDeep(rC, rC2);
+    try expect(rC.equalToCodepoint('∅'));
     // thinking emoji 🤔, U+1f914
     const rD = Rune.fromCodepoint(0x1f914) catch unreachable;
     try expectEqual(0xf0, rD.a);
@@ -695,5 +706,6 @@ test "rune tests" {
     try expectEqualDeep(rD, rD2);
     const rDs = rD.toByteArray();
     try std.testing.expectEqualStrings(strD, &rDs);
+    try expect(rD.equalToCodepoint('🤔'));
     try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
 }
