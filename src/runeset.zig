@@ -114,17 +114,23 @@ pub const RuneSet = struct {
         return self.t3_3c_start() - 1;
     }
 
-    /// Start of T3 region
+    /// Start of T3 region.
     inline fn t3start(self: RuneSet) usize {
         return self.t2end();
     }
 
-    // End of T3 region
+    /// End of T3 region.
     inline fn t3end(self: RuneSet) usize {
         if (self.body[T4_OFF] == 0)
             return self.body.len
         else
             return self.body[T4_OFF];
+    }
+
+    /// Last word (first in lexical order) of
+    /// T3 region.
+    inline fn t3final(self: RuneSet) usize {
+        return self.t3end() - 1;
     }
 
     /// Start of T4 region, *or* zero for no T4
@@ -1548,7 +1554,7 @@ const LEAD_MASK = 0b1100_0000;
 const FOLLOW_MASK = 0b1000_0000;
 
 /// Iterate a set's members, one Rune at a time,
-/// with `runeIterator.next()`
+/// with `runeIterator.next()`.
 pub const RuneIterator = struct {
     last: Rune,
     idx: usize,
@@ -1564,30 +1570,39 @@ pub const RuneIterator = struct {
         };
     }
 
+    /// Yields the next Rune, or `null` when the
+    /// set completes.
     pub fn next(iter: *RuneIterator) ?Rune {
         const int_last: u32 = @intCast(iter.last);
         if (int_last == RUNE_START) {
             const rune = iter.setup();
-            // if this is null, no need to reset
+            // If this is null, no need to reset
             return rune;
         }
+        // Note: the resulting rune may be of up to four bytes,
+        // regardless of which switch prong is taken
         const rune = switch (iter.last.byteCount()) {
             1 => iter.ascii(),
-            2 => iter.t2rune(),
-            3 => iter.t3rune(),
-            4 => iter.t4rune(),
+            2 => iter.bRune(),
+            3 => iter.cRune(),
+            4 => iter.dRune(),
             else => unreachable,
         };
         if (rune) |r| {
             return r;
         } else {
-            // reset as safety measure
-            iter.last = @bitCast(RUNE_START);
-            iter.idx = 0;
+            // Reset as safety measure
+            iter.reset();
             return null;
         }
     }
 
+    pub fn reset(iter: *RuneIterator) void {
+        iter.last = @bitCast(RUNE_START);
+        iter.x = 0;
+    }
+
+    /// Set up a fresh RuneIterator.
     fn setup(iter: *RuneIterator) ?Rune {
         const Sbod = iter.set.body;
         // set up the RuneIterator, and return when possible
@@ -1607,18 +1622,22 @@ pub const RuneIterator = struct {
                 iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
                 iter.idx = HI;
                 return iter.last;
+            } else {
+                return iter.setupHi();
             }
         }
-        return iter.setupHi();
     }
 
-    pub fn setupHi(iter: *RuneIterator) ?Rune {
+    /// Set up multi-byte iteration (whether fresh,
+    /// or after ASCII completes).
+    fn setupHi(iter: *RuneIterator) ?Rune {
         const Sbod = iter.set.body;
         var a = @ctz(Sbod[LEAD]);
         if (a == 64) {
             // empty set
             assert(Sbod[LEAD] == 0);
             assert(Sbod[T4_OFF] == 0);
+            iter.reset();
             return null;
         } else {
             // Set .lead bits
@@ -1639,9 +1658,10 @@ pub const RuneIterator = struct {
         }
         assert(Sbod[LEAD] & MASK_OUT_TWO != 0);
         // since we're setting up, c is at the end of T3:
-        const T3off = T2off + popCountSlice(iter.set.t2slice());
-        // first byte working backward now:
-        var c: u8 = @clz(Sbod[T3off]);
+        const T3off = iter.set.t3final();
+        assert(T3off == T2off + popCountSlice(iter.set.t2slice()));
+        // T3 and T4 are backward, but the masks are not:
+        var c: u8 = @ctz(Sbod[T3off]);
         assert(c < 64);
         c |= FOLLOW_MASK;
         if (nB == 3) {
@@ -1650,9 +1670,10 @@ pub const RuneIterator = struct {
             return iter.last;
         }
         assert(Sbod[LEAD] & MASK_IN_FOUR != 0);
+        assert(Sbod[T4_OFF] != 0);
         // Lowest four is at the end:
         const T4off = Sbod.len - 1;
-        var d: u8 = @clz(Sbod[T4off]);
+        var d: u8 = @ctz(Sbod[T4off]);
         assert(d < 64);
         assert(nB == 4);
         d |= FOLLOW_MASK;
@@ -1681,6 +1702,77 @@ pub const RuneIterator = struct {
         } else {
             return iter.setupHi();
         }
+    }
+
+    /// Next Rune b region
+    fn bRune(iter: *RuneIterator) ?Rune {
+        const Sbod = iter.set.body;
+        // a is set, we need the next b:
+        const b_mask = toMask(Sbod[iter.idx]);
+        const maybe_b = b_mask.after(codeunit(iter.last.b));
+        if (maybe_b) |b| {
+            iter.last = Rune{ .a = iter.last.a, .b = b, .c = 0, .d = 0 };
+            return iter.last;
+        }
+        // next a, if any
+        const maybe_a = toMask(Sbod[LEAD]).after(codeunit(iter.last.a));
+        if (maybe_a) |a| {
+            iter.idx += 1;
+            // stays in b, for now:
+            assert(iter.idx < iter.set.t2end());
+            const b = toMask(Sbod[iter.idx]).after(codeunit(iter.last.b)).?;
+            switch (a.nMultiBytes) {
+                2 => {
+                    iter.last = Rune{
+                        .a = a.byte(),
+                        .b = b.byte(),
+                        .c = 0,
+                        .d = 0,
+                    }; // idx is still valid
+                    return iter.bRune();
+                },
+                3, 4 => |nB| {
+                    // T3 starts at the end:
+                    const T3off = iter.set.t3final();
+                    const c: u8 = @ctz(Sbod[T3off]);
+                    if (nB == 3) {
+                        iter.last = Rune{
+                            .a = a.byte(),
+                            .b = b.byte(),
+                            .c = c | FOLLOW_MASK,
+                            .d = 0,
+                        };
+                        iter.idx = T3off;
+                        return iter.last;
+                    } else {
+                        // T4 also at the end
+                        const d = @ctz(Sbod[Sbod.len - 1]);
+                        iter.last = Rune{
+                            .a = a.byte(),
+                            .b = b.byte(),
+                            .c = c | FOLLOW_MASK,
+                            .d = d | FOLLOW_MASK,
+                        };
+                        iter.idx = Sbod[Sbod.len - 1];
+                        return iter.last;
+                    }
+                },
+                else => unreachable,
+            }
+        } else {
+            iter.reset();
+            return null;
+        }
+    }
+
+    fn cRune(iter: *RuneIterator) ?Rune {
+        //
+        _ = iter;
+    }
+
+    fn dRune(iter: *RuneIterator) ?Rune {
+        //
+        _ = iter;
     }
 };
 
