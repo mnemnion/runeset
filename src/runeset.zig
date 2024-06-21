@@ -251,6 +251,29 @@ pub const RuneSet = struct {
         }
     }
 
+    /// Return t2 offset corresponding to the `a` CodeUnit.
+    /// `a` must belong to the LEAD mask of the set.
+    pub fn t2offsetFor(self: RuneSet, a: CodeUnit) usize {
+        assert(a.kind == .lead);
+        const a_mask = toMask(self.body[LEAD]);
+        assert(a_mask.isIn(a));
+        return T4_OFF + a_mask.lowerThan(a).?;
+    }
+
+    /// Return t3 offset corresponding to the `b` CodeUnit,
+    /// given its T2 offset.  `b` must be in the relevante word,
+    /// and must be a component of a multibyte sequence of three or
+    /// four bytes in total.
+    pub fn t3offsetFor(self: RuneSet, t2off: usize, b: CodeUnit) usize {
+        assert(self.t2start() + @popCount(self.body[LEAD] & MASK_IN_TWO) < t2off);
+        assert(t2off < self.t2end());
+        const b_mask = toMask(self.body[t2off]);
+        assert(b_mask.isIn(b));
+        const t3off = self.t3start();
+        const c_off = b_mask.higherThan(b).? + popCountSlice(self.body[t2off + 1 .. t3off]);
+        return t3off + c_off;
+    }
+
     /// Free the memory allocated for a RuneSet.
     pub fn deinit(self: RuneSet, alloc: Allocator) void {
         alloc.free(self.body);
@@ -1570,11 +1593,23 @@ pub const RuneIterator = struct {
         };
     }
 
+    //| The challenge here is to maintain the state of the
+    //| iterator, such that transitions between masks are
+    //| efficient.  I've implemented this as a state machine,
+    //| with each transition as its own function.  The unique
+    //| transitions will be inlined.
+    //|
+    //| TODO it might make the most sense to store all three
+    //| offsets, rather than just the last one.  I'll finish
+    //| it this way at first, because re-indexing isn't that
+    //| expensive: we get great throughput on match tests,
+    //| and those locate offsets from a fresh start for each
+    //| slice.
+
     /// Yields the next Rune, or `null` when the
     /// set completes.
     pub fn next(iter: *RuneIterator) ?Rune {
-        const int_last: u32 = @intCast(iter.last);
-        if (int_last == RUNE_START) {
+        if (iter.last.rawInt() == RUNE_START) {
             const rune = iter.setup();
             // If this is null, no need to reset
             return rune;
@@ -1597,6 +1632,7 @@ pub const RuneIterator = struct {
         }
     }
 
+    /// Reset the iterator to start with the first Rune.
     pub fn reset(iter: *RuneIterator) void {
         iter.last = @bitCast(RUNE_START);
         iter.x = 0;
@@ -1637,6 +1673,8 @@ pub const RuneIterator = struct {
             // empty set
             assert(Sbod[LEAD] == 0);
             assert(Sbod[T4_OFF] == 0);
+            assert(iter.last.rawInt() == RUNE_START);
+            assert(iter.idx == 0);
             iter.reset();
             return null;
         } else {
@@ -1713,12 +1751,19 @@ pub const RuneIterator = struct {
         if (maybe_b) |b| {
             iter.last = Rune{ .a = iter.last.a, .b = b, .c = 0, .d = 0 };
             return iter.last;
+        } else {
+            return iter.resetToB();
         }
+    }
+
+    fn resetToB(iter: *RuneIterator) ?Rune {
+        const Sbod = iter.set.body;
         // next a, if any
         const maybe_a = toMask(Sbod[LEAD]).after(codeunit(iter.last.a));
         if (maybe_a) |a| {
             iter.idx += 1;
-            // stays in b, for now:
+            // Must be in T2 range:
+            assert(iter.set.t2start() <= iter.idx);
             assert(iter.idx < iter.set.t2end());
             const b = toMask(Sbod[iter.idx]).after(codeunit(iter.last.b)).?;
             switch (a.nMultiBytes) {
@@ -1766,13 +1811,92 @@ pub const RuneIterator = struct {
     }
 
     fn cRune(iter: *RuneIterator) ?Rune {
-        //
-        _ = iter;
+        const Sbod = iter.set.body;
+        // a and b are set, we need the next c:
+        const c_mask = toMask(Sbod[iter.idx]);
+        const maybe_c = c_mask.after(codeunit(iter.last.b));
+        if (maybe_c) |c| {
+            iter.last = Rune{
+                .a = iter.last.a,
+                .b = iter.last.b,
+                .c = c.byte(),
+                .d = 0,
+            };
+            return iter.last;
+        } else {
+            return iter.resetToC();
+        }
+    }
+
+    fn resetToC(iter: *RuneIterator) ?Rune {
+        // a and b are known, we need the next b
+        var b_off = iter.set.t2offsetFor(codeunit(iter.last.a));
+        const b_next = iter.set.maskAt(b_off).after(codeunit(iter.last.b));
+        if (b_next) |b| {
+            // since A hasn't changed, we know it's still a three-byte
+            // sequence:
+            const c_off = iter.set.t3offsetFor(b_off, b);
+            const c = @clz(iter.set[c_off]);
+            assert(c != 64);
+            iter.last = Rune{
+                .a = iter.last.a,
+                .b = b.byte(),
+                .c = c | FOLLOW_MASK,
+                .d = 0,
+            };
+            iter.idx = c_off;
+            return iter.last;
+        } // otherwise, next a:
+        const a_next = iter.set.maskAt(LEAD).after(iter.last.a);
+        if (a_next) |a| {
+            b_off += 1;
+            assert(b_off == iter.set.t2offsetFor(a_next));
+            var b = @ctz(iter.set.body[b_off]);
+            assert(b != 64);
+            b |= FOLLOW_MASK;
+            switch (a.nMultiBytes) {
+                3, 4 => |nB| {
+                    // T3 starts at the end:
+                    const T3off = iter.set.t3offsetFor(b_off, codeunit(b));
+                    const c: u8 = @ctz(iter.set.body[T3off]);
+                    assert(c != 64);
+                    if (nB == 3) {
+                        iter.last = Rune{
+                            .a = a.byte(),
+                            .b = b,
+                            .c = c | FOLLOW_MASK,
+                            .d = 0,
+                        };
+                        iter.idx = T3off;
+                        return iter.last;
+                    } else {
+                        // TODO deal with this case
+                    }
+                },
+                else => unreachable,
+            }
+        } else {
+            iter.reset();
+            return null;
+        }
     }
 
     fn dRune(iter: *RuneIterator) ?Rune {
-        //
-        _ = iter;
+        const Sbod = iter.set.body;
+        // a, b, and c, are set, we need the next d:
+        const d_mask = toMask(Sbod[iter.idx]);
+        const maybe_d = d_mask.after(codeunit(iter.last.b));
+        if (maybe_d) |d| {
+            iter.last = Rune{
+                .a = iter.last.a,
+                .b = iter.last.b,
+                .c = iter.last.c,
+                .d = d.byte(),
+            };
+            return iter.last;
+        } else {
+            return iter.resetToD();
+        }
     }
 };
 
