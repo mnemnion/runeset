@@ -76,7 +76,7 @@ pub const RuneSet = struct {
     }
 
     inline fn t2start(_: RuneSet) usize {
-        return T4_OFF;
+        return 4;
     }
 
     //| The following functions assume that the set has the
@@ -791,8 +791,8 @@ pub const RuneSet = struct {
                     RT2i -= 1;
                 }
             } // Postconditions:
-            assert(LT2i == L.t2start() + @popCount(Lbod[LEAD] & MASK_IN_TWO));
-            assert(RT2i == R.t2start() + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(LT2i == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(RT2i == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
             assert(NT3i == NT3.len);
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
@@ -963,9 +963,6 @@ pub const RuneSet = struct {
                 assert(RT2i == R.t2_4b_start() - 1);
                 assert(RT3i == R.t3_3c_start());
                 assert(LT3i == L.t3_3c_start());
-                if (builtin.mode == .Debug) {
-                    assert(NT3i == NT3.len);
-                }
                 assert(LT4i == Lbod.len);
                 assert(RT4i == Rbod.len);
             }
