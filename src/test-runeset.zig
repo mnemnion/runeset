@@ -503,7 +503,7 @@ test "data integrity" {
 const t_ext = @import("test-data-ext.zig");
 const fuzz = @import("fuzz.zig");
 
-test "big test energy" {
+test "extended random test data" {
     if (config.test_more) {
         const allocator = std.testing.allocator;
         const testudo = t_ext.mucho_testo[0..];

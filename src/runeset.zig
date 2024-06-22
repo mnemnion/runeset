@@ -76,7 +76,7 @@ pub const RuneSet = struct {
     }
 
     inline fn t2start(_: RuneSet) usize {
-        return 4;
+        return T4_OFF;
     }
 
     //| The following functions assume that the set has the
@@ -704,6 +704,7 @@ pub const RuneSet = struct {
             @memcpy(Nbod, &header);
             return RuneSet{ .body = Nbod };
         }
+        // Tier 2
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         L.spreadT2(&NT2);
         {
@@ -721,12 +722,12 @@ pub const RuneSet = struct {
             @memcpy(Nbod[4..], T2c);
             return RuneSet{ .body = Nbod };
         }
+        // Tier 3
+        // Each bit of the c and d region of T2 gets a mask:
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..]));
         defer allocator.free(NT3);
-        // T3 rank
         {
-            // These masks tell us which words in NT2 belong
-            // to which sets.
+            // Track ownership of T2 bitmasks
             const LT1m = toMask(Lbod[LEAD]);
             const RT1m = toMask(Rbod[LEAD]);
             const bothT1m = toMask(Lbod[LEAD] & Rbod[LEAD]);
@@ -735,7 +736,9 @@ pub const RuneSet = struct {
             var NT3i: usize = 0;
             var LT3i = L.t3start();
             var RT3i = R.t3start();
-            // Reverse iterate lead mask elements of three and four bytes
+            // Reverse iterate lead mask elements of three and four bytes.
+            // We make all masks for T3, so we can use a popcount to
+            // allocate T4, if there is one.
             var LT2i = L.t2final();
             var RT2i = R.t2final();
             var unionT2iter = toMask(header[LEAD] & MASK_OUT_TWO).iterElemBack();
@@ -749,6 +752,7 @@ pub const RuneSet = struct {
                     LT2i -= 1;
                     RT2i -= 1;
                     var elemIter = toMask(NT2[e2]).iterElemBack();
+                    assert(elemIter.mask.m == LT2m.m | RT2m.m);
                     while (elemIter.next()) |e3| {
                         if (bothT2m.isElem(e3)) {
                             NT3[NT3i] = Lbod[LT3i] | Rbod[RT3i];
@@ -787,8 +791,8 @@ pub const RuneSet = struct {
                     RT2i -= 1;
                 }
             } // Postconditions:
-            assert(LT2i == T4_OFF + @popCount(Lbod[LEAD] & MASK_IN_TWO));
-            assert(RT2i == T4_OFF + @popCount(Rbod[LEAD] & MASK_IN_TWO));
+            assert(LT2i == L.t2start() + @popCount(Lbod[LEAD] & MASK_IN_TWO));
+            assert(RT2i == R.t2start() + @popCount(Rbod[LEAD] & MASK_IN_TWO));
             assert(NT3i == NT3.len);
             assert(LT3i == L.t3end());
             assert(RT3i == R.t3end());
@@ -804,13 +808,13 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // T4 setup
-        // - popcount of four-byte range of NT3
+        // Popcount of four-byte range of NT3
         const NT2b4len = popCountSlice(NT2[THREE_MAX..]);
         const NT4len = popCountSlice(NT3[0..NT2b4len]);
-        // - allocate NT4
+        // Is word width of NT4
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
-        // T4 rank
+        // Tier 4
         {
             // We iterate backward through the header mask, and backward
             // again through the T2 words.  This lets us start at 0 for
@@ -959,6 +963,9 @@ pub const RuneSet = struct {
                 assert(RT2i == R.t2_4b_start() - 1);
                 assert(RT3i == R.t3_3c_start());
                 assert(LT3i == L.t3_3c_start());
+                if (builtin.mode == .Debug) {
+                    assert(NT3i == NT3.len);
+                }
                 assert(LT4i == Lbod.len);
                 assert(RT4i == Rbod.len);
             }
@@ -998,8 +1005,7 @@ pub const RuneSet = struct {
         // We blow up LT2:
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         L.spreadT2(&NT2);
-        // Take a union of LEADS
-        {
+        { // Take a union of LEADS
             const unionLead = toMask(Rbod[LEAD] | Lbod[LEAD]);
             const L1m = toMask(Lbod[LEAD]);
             const R1m = toMask(Rbod[LEAD]);
