@@ -1134,15 +1134,15 @@ pub const RuneSet = struct {
             @memcpy(Nbod[T2end..setLen], T3c);
             return RuneSet{ .body = Nbod };
         } else if (R.noFourBytes()) {
-            // we can just copy LT4 and return
+            // We can just copy LT4 and return
             header[LEAD] = LLeadMask.m;
             const T2c = compactSlice(&NT2);
             const T2end = 4 + T2c.len;
             const T3c = compactSlice(NT3);
             const T3end = T2end + T3c.len;
-            // which is the T4 offset:
+            // Which is the T4 offset:
             header[T4_OFF] = T3end;
-            const T4 = L.t4slice().?; // checked in prior if statement
+            const T4 = L.t4slice().?; // Checked in prior if statement
             const setLen = T3end + T4.len;
             const Nbod = try allocator.alloc(u64, setLen);
             @memcpy(Nbod[0..4], &header);
@@ -1204,10 +1204,11 @@ pub const RuneSet = struct {
                 const RT2m = toMask(Rbod[RT2i]);
                 // We're done with RT2i, decrement
                 RT2i -= 1;
+                const bothT2m = LT2m.intersection(RT2m);
                 // iterate the union of this T2 word backward
                 var unionT2iter = toMask(LT2m.m | RT2m.m).iterElemBack();
                 while (unionT2iter.next()) |e3| {
-                    if (LT2m.isElem(e3) and RT2m.isElem(e3)) {
+                    if (bothT2m.isElem(e3)) {
                         // We iterate forward through T3 and T4.
                         // Intersections are diffed,
                         // zeroed words remove that NT3 bit.
@@ -1255,7 +1256,7 @@ pub const RuneSet = struct {
                 if (NT2[e2] == 0) {
                     LLeadMask.remove(codeunit(e2));
                 }
-            } else { // Must be L2, subtract mask from LT3i
+            } else { // Must be L2, we skip forward
                 assert(inLT2);
                 const NT3count = @popCount(NT2[e2]);
                 for (0..NT3count) |_| {
