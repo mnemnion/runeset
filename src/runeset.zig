@@ -257,19 +257,20 @@ pub const RuneSet = struct {
         assert(a.kind == .lead);
         const a_mask = toMask(self.body[LEAD]);
         assert(a_mask.isIn(a));
-        return T4_OFF + a_mask.lowerThan(a).?;
+        return self.t2start() + a_mask.lowerThan(a).?;
     }
 
     /// Return t3 offset corresponding to the `b` CodeUnit,
-    /// given its T2 offset.  `b` must be in the relevante word,
+    /// given its T2 offset.  `b` must be in the relevant word,
     /// and must be a component of a multibyte sequence of three or
     /// four bytes in total.
     pub fn t3offsetFor(self: RuneSet, t2off: usize, b: CodeUnit) usize {
-        assert(self.t2start() + @popCount(self.body[LEAD] & MASK_IN_TWO) < t2off);
+        assert(self.t2start() + @popCount(self.body[LEAD] & MASK_IN_TWO) <= t2off);
         assert(t2off < self.t2end());
         const b_mask = toMask(self.body[t2off]);
         assert(b_mask.isIn(b));
         const t3off = self.t3start();
+        assert(t3off < self.body.len);
         const c_off = b_mask.higherThan(b).? + popCountSlice(self.body[t2off + 1 .. t3off]);
         return t3off + c_off;
     }
@@ -1617,8 +1618,13 @@ pub const RuneIterator = struct {
     pub fn next(iter: *RuneIterator) ?Rune {
         if (iter.last.rawInt() == RUNE_START) {
             const rune = iter.setup();
-            // If this is null, no need to reset
-            return rune;
+            if (rune) |r| {
+                iter.last = r;
+                return iter.last;
+            } else {
+                // If this is null, no need to reset
+                return null;
+            }
         }
         // Note: the resulting rune may be of up to four bytes,
         // regardless of which switch prong is taken
@@ -1649,19 +1655,28 @@ pub const RuneIterator = struct {
         const Sbod = iter.set.body;
         // set up the RuneIterator, and return when possible
         assert(iter.idx == LOW);
-        var a: u8 = @ctz(Sbod[LOW]);
-        if (a < 64) {
+        var maybe_a = iter.set.maskAt(LOW).first(.low);
+        if (maybe_a) |a| {
             // Low ASCII
-            iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
+            iter.last = Rune{
+                .a = a.byte(),
+                .b = 0,
+                .c = 0,
+                .d = 0,
+            };
             iter.idx = LOW;
             return iter.last;
         } else {
             assert(Sbod[LOW] == 0);
-            a = @ctz(Sbod[HI]);
-            if (a < 64) {
+            maybe_a = iter.set.maskAt(HI).first(.hi);
+            if (maybe_a) |a| {
                 // High ASCII, set .hi bit:
-                a |= HI_MASK;
-                iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
+                iter.last = Rune{
+                    .a = a.byte(),
+                    .b = 0,
+                    .c = 0,
+                    .d = 0,
+                };
                 iter.idx = HI;
                 return iter.last;
             } else {
@@ -1674,56 +1689,59 @@ pub const RuneIterator = struct {
     /// or after ASCII completes).
     fn setupHi(iter: *RuneIterator) ?Rune {
         const Sbod = iter.set.body;
-        var a: u8 = @ctz(Sbod[LEAD]);
-        if (a == 64) {
+        const maybe_a = iter.set.maskAt(LEAD).first(.lead);
+        if (maybe_a) |a| {
+            const nB = a.nMultiBytes().?;
+            const T2off = iter.set.t2offsetFor(a);
+            const b = iter.set.maskAt(T2off).first(.follow).?;
+            if (nB == 2) {
+                iter.last = Rune{
+                    .a = a.byte(),
+                    .b = b.byte(),
+                    .c = 0,
+                    .d = 0,
+                };
+                iter.idx = T2off;
+                return iter.last;
+            }
+            assert(Sbod[LEAD] & MASK_OUT_TWO != 0);
+            // since we're setting up, c is at the end of T3:
+            const T3off = iter.set.t3final();
+            assert(T3off == iter.set.t3offsetFor(T2off, b));
+            const c = iter.set.maskAt(T3off).first(.follow).?;
+            if (nB == 3) {
+                iter.last = Rune{
+                    .a = a.byte(),
+                    .b = b.byte(),
+                    .c = c.byte(),
+                    .d = 0,
+                };
+                iter.idx = T3off;
+                return iter.last;
+            }
+            assert(Sbod[LEAD] & MASK_IN_FOUR != 0);
+            assert(Sbod[T4_OFF] != 0);
+            // Lowest four is at the end:
+            const T4off = Sbod.len - 1;
+            const d = iter.set.maskAt(T4off).first(.follow).?;
+            assert(nB == 4);
+            iter.last = Rune{
+                .a = a.byte(),
+                .b = b.byte(),
+                .c = c.byte(),
+                .d = d.byte(),
+            };
+            iter.idx = T4off;
+            return iter.last;
+        } else {
             // empty set
             assert(Sbod[LEAD] == 0);
             assert(Sbod[T4_OFF] == 0);
-            assert(iter.last.rawInt() == RUNE_START or iter.last.b == 0);
+            assert(iter.last.rawInt() == RUNE_START or iter.last.byteCount() == 1);
             assert(iter.idx <= LEAD);
             iter.reset();
             return null;
-        } else {
-            // Set .lead bits
-            a |= LEAD_MASK;
-            iter.idx = LEAD;
         }
-        const a_cu = codeunit(a);
-        const nB = a_cu.nMultiBytes().?;
-        const lead_mask = toMask(Sbod[LEAD]);
-        const T2off = lead_mask.lowerThan(a_cu).? + iter.set.t2start();
-        var b: u8 = @ctz(Sbod[T2off]);
-        assert(b < 64);
-        b |= FOLLOW_MASK;
-        if (nB == 2) {
-            iter.last = Rune{ .a = a, .b = b, .c = 0, .d = 0 };
-            iter.idx = T2off;
-            return iter.last;
-        }
-        assert(Sbod[LEAD] & MASK_OUT_TWO != 0);
-        // since we're setting up, c is at the end of T3:
-        const T3off = iter.set.t3final();
-        assert(T3off == T2off + popCountSlice(iter.set.t2slice().?));
-        // T3 and T4 are backward, but the masks are not:
-        var c: u8 = @ctz(Sbod[T3off]);
-        assert(c < 64);
-        c |= FOLLOW_MASK;
-        if (nB == 3) {
-            iter.last = Rune{ .a = a, .b = b, .c = c, .d = 0 };
-            iter.idx = T3off;
-            return iter.last;
-        }
-        assert(Sbod[LEAD] & MASK_IN_FOUR != 0);
-        assert(Sbod[T4_OFF] != 0);
-        // Lowest four is at the end:
-        const T4off = Sbod.len - 1;
-        var d: u8 = @ctz(Sbod[T4off]);
-        assert(d < 64);
-        assert(nB == 4);
-        d |= FOLLOW_MASK;
-        iter.last = Rune{ .a = a, .b = b, .c = c, .d = d };
-        iter.idx = T4off;
-        return iter.last;
     }
 
     fn ascii(iter: *RuneIterator) ?Rune {
@@ -1744,6 +1762,7 @@ pub const RuneIterator = struct {
             iter.last = Rune{ .a = a, .b = 0, .c = 0, .d = 0 };
             return iter.last;
         } else {
+            assert(iter.idx == LEAD);
             return iter.setupHi();
         }
     }
@@ -1755,10 +1774,16 @@ pub const RuneIterator = struct {
         const b_mask = toMask(Sbod[iter.idx]);
         const maybe_b = b_mask.after(codeunit(iter.last.b));
         if (maybe_b) |b| {
-            iter.last = Rune{ .a = iter.last.a, .b = b.byte(), .c = 0, .d = 0 };
+            iter.last = Rune{
+                .a = iter.last.a,
+                .b = b.byte(),
+                .c = 0,
+                .d = 0,
+            };
             return iter.last;
         } else {
-            return iter.resetToB();
+            const rune = iter.resetToB();
+            return rune;
         }
     }
 
@@ -1771,7 +1796,7 @@ pub const RuneIterator = struct {
             // Must be in T2 range:
             assert(iter.set.t2start() <= iter.idx);
             assert(iter.idx < iter.set.t2end());
-            const b = toMask(Sbod[iter.idx]).after(codeunit(iter.last.b)).?;
+            const b = toMask(Sbod[iter.idx]).first(.follow).?;
             switch (a.nMultiBytes().?) {
                 2 => {
                     iter.last = Rune{

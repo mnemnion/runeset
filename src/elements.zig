@@ -4,7 +4,9 @@
 //! with UTF-8 encoded data.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const testing = std.testing;
+const safeMode = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
 
 /// Kinds of most significant bits in UTF-8
 pub const RuneKind = enum(u2) {
@@ -383,7 +385,15 @@ pub const Mask = struct {
     /// Return the next element of the Mask.
     /// It is illegal to pass this function a nonexistent element.
     pub inline fn after(self: Mask, cu: CodeUnit) ?CodeUnit {
-        std.debug.assert(self.isIn(cu));
+        if (safeMode) {
+            if (!self.isIn(cu)) {
+                std.debug.print(
+                    "{} with body {d}, byte {d}, not in 0x{x:0>16}\n",
+                    .{ cu.kind, cu.body, cu.byte(), self.m },
+                );
+                std.debug.assert(false);
+            }
+        }
         const kind = cu.kind;
         if (cu.body == 63) return null;
         var next: u6 = cu.body + 1;
