@@ -104,6 +104,7 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     if (matchedNew) |nB| {
         try expectEqual(asString.len, nB);
     } else try expect(false);
+    // TODO var setIter = set.
 }
 
 /// Verify basic set properties of an LRstrings data sample.
@@ -165,13 +166,6 @@ fn verifySetOperations(str: []const u8, l: []const u8, r: []const u8, alloc: All
 /// - The union of sets matches `str`
 /// - A set of `str` is equal to the union of `l` and `r`
 ///
-fn verifyLRSetUnion(s: LRstrings, alloc: Allocator) !void {
-    const str = s.str;
-    const l = s.l;
-    const r = s.r;
-    try verifySetUnion(str, l, r, alloc);
-}
-
 fn verifySetUnion(str: []const u8, l: []const u8, r: []const u8, alloc: Allocator) !void {
     const setL = try RuneSet.createFromConstString(l, alloc);
     defer setL.deinit(alloc);
@@ -198,13 +192,6 @@ fn verifySetUnion(str: []const u8, l: []const u8, r: []const u8, alloc: Allocato
     if (matchAll) |m| {
         try expectEqual(str.len, m);
     } else try expect(false);
-}
-
-fn verifyLRSetDifference(LR: LRstrings, alloc: Allocator) !void {
-    const r = LR.r;
-    const l = LR.l;
-    const str = LR.str;
-    try verifySetDifference(str, l, r, alloc);
 }
 
 /// Verify correct set difference of LR string:
@@ -259,13 +246,6 @@ fn verifySetDifference(str: []const u8, l: []const u8, r: []const u8, alloc: All
     try expectEqual(0, setRdiffAll.codeunitCount());
     try expectEqual(4, setRdiffAll.body.len);
     try expect(setNone.equalTo(setRdiffAll));
-}
-
-fn verifyLRSetIntersection(LR: LRstrings, alloc: Allocator) !void {
-    const str = LR.str;
-    const l = LR.l;
-    const r = LR.r;
-    try verifySetIntersection(str, l, r, alloc);
 }
 
 fn verifySetIntersection(str: []const u8, l: []const u8, r: []const u8, alloc: Allocator) !void {
