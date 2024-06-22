@@ -397,6 +397,15 @@ pub const Mask = struct {
         return null;
     }
 
+    pub inline fn first(self: Mask, kind: RuneKind) ?CodeUnit {
+        const c1 = @ctz(self.m);
+        if (c1 == 64) {
+            return null;
+        } else {
+            return CodeUnit{ .kind = kind, .body = @intCast(c1) };
+        }
+    }
+
     /// Return a forward iterator of elements (u6) in the Mask.
     pub fn iterElements(self: Mask) MaskElements {
         return MaskElements{ .mask = self };
@@ -587,6 +596,7 @@ test "mask tests" {
     try expectEqual(D, mask.after(B).?);
     try expectEqual(Z, mask.after(D).?);
     try expectEqual(null, mask.after(Z));
+    try expectEqualDeep(B, mask.first(B.kind));
     var mIter = mask.iterElements();
     try expectEqual(B.body, mIter.next().?);
     try expectEqual(D.body, mIter.next().?);
