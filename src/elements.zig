@@ -385,6 +385,7 @@ pub const Mask = struct {
     pub inline fn after(self: Mask, cu: CodeUnit) ?CodeUnit {
         std.debug.assert(self.isIn(cu));
         const kind = cu.kind;
+        if (cu.body == 63) return null;
         var next: u6 = cu.body + 1;
         while (true) {
             if (self.isElem(next)) {

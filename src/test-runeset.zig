@@ -104,7 +104,11 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     if (matchedNew) |nB| {
         try expectEqual(asString.len, nB);
     } else try expect(false);
-    // TODO var setIter = set.
+    var setIter = set.iterateRunes();
+    while (setIter.next()) |rune| {
+        const runeArray = rune.toByteArray();
+        try expectEqual(rune.byteCount(), set.matchOne(&runeArray).?);
+    }
 }
 
 /// Verify basic set properties of an LRstrings data sample.
