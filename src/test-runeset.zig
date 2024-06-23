@@ -14,6 +14,7 @@ pub const runeset = @import("runeset.zig");
 pub const data = @import("test-data.zig");
 
 const RuneSet = runeset.RuneSet;
+const Rune = runeset.Rune;
 const codeunit = elements.codeunit;
 
 const expect = std.testing.expect;
@@ -105,7 +106,17 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
         try expectEqual(asString.len, nB);
     } else try expect(false);
     var setIter = set.iterateRunes();
+    var lastRune = Rune.fromCodepoint('\u{0}') catch unreachable;
     while (setIter.next()) |rune| {
+        if (lastRune.rawInt() == rune.rawInt()) {
+            std.debug.print(
+                "Saw {u} and {u}\n",
+                .{ lastRune.toCodepoint() catch unreachable, rune.toCodepoint() catch unreachable },
+            );
+            try expect(false);
+        } else {
+            lastRune = rune;
+        }
         const runeArray = rune.toByteArray();
         try expectEqual(rune.byteCount(), set.matchOne(&runeArray).?);
     }

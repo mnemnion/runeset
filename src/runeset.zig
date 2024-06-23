@@ -1842,10 +1842,9 @@ pub const RuneIterator = struct {
     }
 
     fn cRune(iter: *RuneIterator) ?Rune {
-        const Sbod = iter.set.body;
         // a and b are set, we need the next c:
-        const c_mask = toMask(Sbod[iter.idx]);
-        const maybe_c = c_mask.after(codeunit(iter.last.b));
+        const c_mask = iter.set.maskAt(iter.idx);
+        const maybe_c = c_mask.after(codeunit(iter.last.c));
         if (maybe_c) |c| {
             iter.last = Rune{
                 .a = iter.last.a,
@@ -1866,13 +1865,13 @@ pub const RuneIterator = struct {
         if (b_next) |b| {
             // since a hasn't changed, we know it's still a three-byte
             // sequence:
-            const T3off = iter.set.t3offsetFor(T2off, b);
-            const c: u8 = @ctz(iter.set.body[T3off]);
-            assert(c != 64);
+            const T3off = iter.idx - 1;
+            assert(T3off == iter.set.t3offsetFor(T2off, b));
+            const c = iter.set.maskAt(T3off).first(.follow).?;
             iter.last = Rune{
                 .a = iter.last.a,
                 .b = b.byte(),
-                .c = c | FOLLOW_MASK,
+                .c = c.byte(),
                 .d = 0,
             };
             iter.idx = T3off;
@@ -1882,22 +1881,20 @@ pub const RuneIterator = struct {
         if (a_next) |a| {
             T2off += 1;
             assert(T2off == iter.set.t2offsetFor(a));
-            var b: u8 = @ctz(iter.set.body[T2off]);
-            assert(b != 64);
-            b |= FOLLOW_MASK;
+            const b = iter.set.maskAt(T2off).first(.follow).?;
             switch (a.nMultiBytes().?) {
                 3, 4 => |nB| {
-                    // T3 starts at the end:
-                    const T3off = iter.set.t3offsetFor(T2off, codeunit(b));
-                    const c: u8 = @ctz(iter.set.body[T3off]);
-                    assert(c != 64);
+                    // iter.idx is still in T3
+                    const T3off = iter.idx - 1;
+                    assert(T3off == iter.set.t3offsetFor(T2off, b));
+                    const c = iter.set.maskAt(T3off).first(.follow).?;
                     if (nB == 3) {
                         assert(iter.set.t3_3c_start() <= T3off);
                         assert(T3off < iter.set.t3end());
                         iter.last = Rune{
                             .a = a.byte(),
-                            .b = b,
-                            .c = c | FOLLOW_MASK,
+                            .b = b.byte(),
+                            .c = c.byte(),
                             .d = 0,
                         };
                         iter.idx = T3off;
@@ -1909,12 +1906,12 @@ pub const RuneIterator = struct {
                         assert(T3off < iter.set.t3_3c_start());
                         // since we're in resetToC, this is the first d
                         iter.idx = iter.set.body.len - 1;
-                        const d: u8 = @ctz(iter.set.body[iter.idx]);
+                        const d = iter.set.maskAt(iter.idx).first(.follow).?;
                         iter.last = Rune{
                             .a = a.byte(),
-                            .b = b,
-                            .c = c | FOLLOW_MASK,
-                            .d = d | FOLLOW_MASK,
+                            .b = b.byte(),
+                            .c = c.byte(),
+                            .d = d.byte(),
                         };
                         return iter.last;
                     }
@@ -1928,10 +1925,8 @@ pub const RuneIterator = struct {
     }
 
     fn dRune(iter: *RuneIterator) ?Rune {
-        const Sbod = iter.set.body;
         // a, b, and c, are set, we need the next d:
-        const d_mask = toMask(Sbod[iter.idx]);
-        const maybe_d = d_mask.after(codeunit(iter.last.b));
+        const maybe_d = iter.set.maskAt(iter.idx).after(codeunit(iter.last.d));
         if (maybe_d) |d| {
             iter.last = Rune{
                 .a = iter.last.a,
@@ -1954,13 +1949,12 @@ pub const RuneIterator = struct {
             // resetToD means iter.idx is in T4
             iter.idx -= 1;
             assert(iter.set.t4offset() <= iter.idx);
-            const d: u8 = @ctz(iter.set.body[iter.idx]);
-            assert(d != 64);
+            const d = iter.set.maskAt(iter.idx).first(.follow).?;
             iter.last = Rune{
                 .a = iter.last.a,
                 .b = iter.last.b,
                 .c = c.byte(),
-                .d = d | FOLLOW_MASK,
+                .d = d.byte(),
             };
             return iter.last;
         } else { // New b needed
@@ -1969,17 +1963,15 @@ pub const RuneIterator = struct {
                 // T3off must simply be decremented
                 T3off -= 1; // Equal to this more expensive calculation:
                 assert(T3off == iter.set.t3offsetFor(T2off, b));
-                const c: u8 = @ctz(iter.set.body[T3off]);
-                assert(c != 64); // iter.idx still has our T4off:
+                const c = iter.set.maskAt(T3off).first(.follow).?;
                 iter.idx -= 1;
                 assert(iter.set.t4offset() <= iter.idx);
-                const d: u8 = @ctz(iter.set.body[iter.idx]);
-                assert(d != 64);
+                const d = iter.set.maskAt(iter.idx).first(.follow).?;
                 iter.last = Rune{
                     .a = iter.last.a,
                     .b = b.byte(),
-                    .c = c | FOLLOW_MASK,
-                    .d = d | FOLLOW_MASK,
+                    .c = c.byte(),
+                    .d = d.byte(),
                 };
                 return iter.last;
             } else { // New a needed
@@ -1991,21 +1983,18 @@ pub const RuneIterator = struct {
                     // than the first offset:
                     assert(iter.set.t2_4b_start() < T2off);
                     assert(T2off < iter.set.t2end());
-                    const b: u8 = @ctz(iter.set.body[T2off]);
-                    assert(b != 64);
+                    const b = iter.set.maskAt(T2off).first(.follow).?;
                     T3off -= 1;
-                    assert(T3off == iter.set.t3offsetFor(T2off, codeunit(b)));
-                    const c: u8 = @ctz(iter.set.body[T3off]);
-                    assert(c != 64);
+                    assert(T3off == iter.set.t3offsetFor(T2off, b));
+                    const c = iter.set.maskAt(T3off).first(.follow).?;
                     iter.idx -= 1;
                     assert(iter.set.t4offset() <= iter.idx);
-                    const d: u8 = @ctz(iter.set.body[iter.idx]);
-                    assert(d != 64);
+                    const d = iter.set.maskAt(iter.idx).first(.follow).?;
                     iter.last = Rune{
                         .a = a.byte(),
-                        .b = b | FOLLOW_MASK,
-                        .c = c | FOLLOW_MASK,
-                        .d = d | FOLLOW_MASK,
+                        .b = b.byte(),
+                        .c = c.byte(),
+                        .d = d.byte(),
                     };
                     return iter.last;
                 } else { // No a means we're done
