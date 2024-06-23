@@ -1809,6 +1809,8 @@ pub const RuneIterator = struct {
         const maybe_a = toMask(Sbod[LEAD]).after(codeunit(iter.last.a));
         if (maybe_a) |a| {
             iter.idx += 1;
+            // Same as this:
+            assert(iter.idx == iter.set.t2offsetFor(a));
             // Must be in T2 range:
             assert(iter.set.t2start() <= iter.idx);
             assert(iter.idx < iter.set.t2end());
@@ -1821,7 +1823,7 @@ pub const RuneIterator = struct {
                         .c = 0,
                         .d = 0,
                     }; // idx is still valid
-                    return iter.bRune();
+                    return iter.last;
                 },
                 3, 4 => |nB| {
                     // T3 starts at the end:
