@@ -394,8 +394,8 @@ pub const Mask = struct {
                 std.debug.assert(false);
             }
         }
-        const kind = cu.kind;
         if (cu.body == 63) return null;
+        const kind = cu.kind;
         var next: u6 = cu.body + 1;
         while (true) {
             if (self.isElem(next)) {

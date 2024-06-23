@@ -260,19 +260,34 @@ pub const RuneSet = struct {
         return self.t2start() + a_mask.lowerThan(a).?;
     }
 
-    /// Return t3 offset corresponding to the `b` CodeUnit,
+    /// Return T3 offset corresponding to the `b` CodeUnit,
     /// given its T2 offset.  `b` must be in the relevant word,
     /// and must be a component of a multibyte sequence of three or
     /// four bytes in total.
     pub fn t3offsetFor(self: RuneSet, t2off: usize, b: CodeUnit) usize {
         assert(self.t2start() + @popCount(self.body[LEAD] & MASK_IN_TWO) <= t2off);
         assert(t2off < self.t2end());
-        const b_mask = toMask(self.body[t2off]);
+        assert(b.kind == .follow);
+        const b_mask = self.maskAt(t2off);
         assert(b_mask.isIn(b));
         const t3off = self.t3start();
         assert(t3off < self.body.len);
         const c_off = b_mask.higherThan(b).? + popCountSlice(self.body[t2off + 1 .. t3off]);
         return t3off + c_off;
+    }
+
+    /// Return T4 offset corresponding to the `c` CodeUnit, given
+    /// its T3 offset.  `c.body` must belong to the T3 word.
+    pub fn t4offsetFor(self: RuneSet, t3off: usize, c: CodeUnit) usize {
+        assert(self.t4offset() != 0);
+        assert(self.t3start() <= t3off);
+        assert(t3off < self.t3end());
+        assert(c.kind == .follow);
+        const c_mask = self.maskAt(t3off);
+        assert(c_mask.isIn(c));
+        const d_off = c_mask.lowerThan(c).? + popCountSlice(self.body[self.t3start()..t3off]);
+        assert(self.t4offset() + d_off < self.body.len);
+        return self.t4offset() + d_off;
     }
 
     /// Free the memory allocated for a RuneSet.
@@ -1722,8 +1737,8 @@ pub const RuneIterator = struct {
             assert(nB == 4);
             assert(Sbod[LEAD] & MASK_IN_FOUR != 0);
             assert(Sbod[T4_OFF] != 0);
-            // Lowest four is at the end:
-            const T4off = Sbod.len - 1;
+            // no easy way to get d:
+            const T4off = iter.set.t4offsetFor(T3off, c);
             const d = iter.set.maskAt(T4off).first(.follow).?;
             iter.last = Rune{
                 .a = a.byte(),
@@ -1788,6 +1803,7 @@ pub const RuneIterator = struct {
     }
 
     fn resetToB(iter: *RuneIterator) ?Rune {
+        assert(iter.last.byteCount() == 2);
         const Sbod = iter.set.body;
         // next a, if any
         const maybe_a = toMask(Sbod[LEAD]).after(codeunit(iter.last.a));
@@ -1859,6 +1875,7 @@ pub const RuneIterator = struct {
     }
 
     fn resetToC(iter: *RuneIterator) ?Rune {
+        assert(iter.last.byteCount() == 3);
         // a and b are known, we need the next b
         var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
         const b_next = iter.set.maskAt(T2off).after(codeunit(iter.last.b));
@@ -1905,7 +1922,7 @@ pub const RuneIterator = struct {
                         assert(iter.set.t3start() <= T3off);
                         assert(T3off < iter.set.t3_3c_start());
                         // since we're in resetToC, this is the first d
-                        iter.idx = iter.set.body.len - 1;
+                        iter.idx = iter.set.t4offsetFor(T3off, c);
                         const d = iter.set.maskAt(iter.idx).first(.follow).?;
                         iter.last = Rune{
                             .a = a.byte(),
@@ -1941,18 +1958,14 @@ pub const RuneIterator = struct {
     }
 
     fn resetToD(iter: *RuneIterator) ?Rune {
+        assert(iter.last.byteCount() == 4);
         // Try for next c
-        std.debug.print("hit reset to d\n", .{});
-        const current_idx = iter.idx;
-        defer assert(current_idx == iter.idx or current_idx - 1 == iter.idx or iter.idx == 0);
         var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
         var T3off = iter.set.t3offsetFor(T2off, codeunit(iter.last.b));
         const maybe_c = iter.set.maskAt(T3off).after(codeunit(iter.last.c));
         if (maybe_c) |c| {
             // resetToD means iter.idx is in T4
-            std.debug.print("found maybe_c\n", .{});
-            iter.idx -= 1;
-            assert(iter.set.t4offset() <= iter.idx);
+            iter.idx = iter.set.t4offsetFor(T3off, c);
             const d = iter.set.maskAt(iter.idx).first(.follow).?;
             iter.last = Rune{
                 .a = iter.last.a,
@@ -1962,13 +1975,13 @@ pub const RuneIterator = struct {
             };
             return iter.last;
         } else { // New b needed
-            const maybe_b = iter.set.maskAt(T3off).after(codeunit(iter.last.b));
+            const maybe_b = iter.set.maskAt(T2off).after(codeunit(iter.last.b));
             if (maybe_b) |b| {
                 // T3off must simply be decremented
                 T3off -= 1; // Equal to this more expensive calculation:
                 assert(T3off == iter.set.t3offsetFor(T2off, b));
                 const c = iter.set.maskAt(T3off).first(.follow).?;
-                iter.idx -= 1;
+                iter.idx = iter.set.t4offsetFor(T3off, c);
                 assert(iter.set.t4offset() <= iter.idx);
                 const d = iter.set.maskAt(iter.idx).first(.follow).?;
                 iter.last = Rune{
@@ -1991,7 +2004,7 @@ pub const RuneIterator = struct {
                     T3off -= 1;
                     assert(T3off == iter.set.t3offsetFor(T2off, b));
                     const c = iter.set.maskAt(T3off).first(.follow).?;
-                    iter.idx -= 1;
+                    iter.idx = iter.set.t4offsetFor(T3off, c);
                     assert(iter.set.t4offset() <= iter.idx);
                     const d = iter.set.maskAt(iter.idx).first(.follow).?;
                     iter.last = Rune{
@@ -2332,8 +2345,6 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             if (d.kind != .follow) return null;
             const d_mask = toMask(set[d_loc]);
             if (d_mask.isIn(d)) return 4 else {
-                // std.debug.print("no final match at index {d}!\n", .{d_loc});
-                // (RuneSet{ .body = set }).debugMaskAt(d_loc);
                 return 0;
             }
         },

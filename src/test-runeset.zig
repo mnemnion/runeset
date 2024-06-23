@@ -7,6 +7,9 @@ const std = @import("std");
 const config = @import("config");
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
+
+const safemode = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
 
 pub const elements = @import("elements.zig");
 pub const runeset = @import("runeset.zig");
@@ -105,36 +108,44 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     if (matchedNew) |nB| {
         try expectEqual(asString.len, nB);
     } else try expect(false);
-    // XXX try verifySetIteration(set);
+    try verifySetIteration(set);
 }
 
 fn verifySetIteration(set: RuneSet) !void {
     var setIter = set.iterateRunes();
-    var lastRune = Rune.fromCodepoint('\u{0}') catch unreachable;
+    // Craft an impossible Rune which is different from the one
+    // we use to mark a fresh iterator
+    var lastRune = Rune{ .a = 0xff, .b = 0xff, .c = 0x00, .d = 0xff };
+    // Count total bytes seen
+    var codeunits: usize = 0;
     while (setIter.next()) |rune| {
+        // skipping the first rune, verify that codeunit value is increasing
+        if (codeunits > 0) {
+            try expect(lastRune.toCodepoint() catch unreachable < rune.toCodepoint() catch unreachable);
+        }
         if (lastRune.rawInt() == rune.rawInt()) {
             std.debug.print(
                 "Saw {u} and {u}\n",
                 .{ lastRune.toCodepoint() catch unreachable, rune.toCodepoint() catch unreachable },
+            );
+            std.debug.print(
+                "rune bytes: {x} {x} {x} {x}\n",
+                .{ rune.a, rune.b, rune.c, rune.d },
             );
             try expect(false);
         } else {
             lastRune = rune;
         }
         const runeArray = rune.toByteArray();
-        if (rune.byteCount() != set.matchOne(&runeArray).?) {
+        const matchedBytes = set.matchOne(&runeArray).?;
+        const byteCount = rune.byteCount();
+        if (safemode and byteCount != matchedBytes) {
             const rune_point = rune.toCodepoint();
             if (rune_point) |r| {
                 std.debug.print("rune {u} not a member of set\n", .{r});
                 std.debug.print(
                     "rune bytes: {x} {x} {x} {x}\n",
                     .{ rune.a, rune.b, rune.c, rune.d },
-                );
-                std.debug.print(
-                    "rune array bytes: {x} {x} {x} {x}\n",
-                    .{
-                        runeArray[0], runeArray[1], runeArray[2], runeArray[3],
-                    },
                 );
                 std.debug.print("set length {d}, idx {d}\n", .{ set.body.len, setIter.idx });
                 set.debugMaskAt(setIter.idx);
@@ -144,10 +155,11 @@ fn verifySetIteration(set: RuneSet) !void {
                     .{ rune.a, rune.b, rune.c, rune.d },
                 );
             }
-            try expect(false);
         }
-        // try expectEqual(rune.byteCount(), set.matchOne(&runeArray).?);
+        try expectEqual(byteCount, matchedBytes);
+        codeunits += byteCount;
     }
+    try expectEqual(codeunits, set.codeunitCount());
 }
 
 /// Verify basic set properties of an LRstrings data sample.
@@ -364,7 +376,7 @@ test "workshop" {
     const allocator = std.testing.allocator;
     const d_set = try RuneSet.createFromConstString(deseret.str, allocator);
     defer d_set.deinit(allocator);
-    // try verifySetIteration(d_set);
+    try verifySetIteration(d_set);
 }
 
 test "verify sets of LRstrings data" {
