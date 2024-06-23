@@ -1719,12 +1719,12 @@ pub const RuneIterator = struct {
                 iter.idx = T3off;
                 return iter.last;
             }
+            assert(nB == 4);
             assert(Sbod[LEAD] & MASK_IN_FOUR != 0);
             assert(Sbod[T4_OFF] != 0);
             // Lowest four is at the end:
             const T4off = Sbod.len - 1;
             const d = iter.set.maskAt(T4off).first(.follow).?;
-            assert(nB == 4);
             iter.last = Rune{
                 .a = a.byte(),
                 .b = b.byte(),
@@ -1942,6 +1942,8 @@ pub const RuneIterator = struct {
 
     fn resetToD(iter: *RuneIterator) ?Rune {
         // Try for next c
+        const current_idx = iter.idx;
+        defer assert(current_idx == iter.idx or current_idx - 1 == iter.idx or iter.idx == 0);
         var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
         var T3off = iter.set.t3offsetFor(T2off, codeunit(iter.last.b));
         const maybe_c = iter.set.maskAt(T3off).after(codeunit(iter.last.c));
@@ -2327,7 +2329,11 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const d = codeunit(str[3]);
             if (d.kind != .follow) return null;
             const d_mask = toMask(set[d_loc]);
-            if (d_mask.isIn(d)) return 4 else return 0;
+            if (d_mask.isIn(d)) return 4 else {
+                std.debug.print("no final match at index {d}!\n", .{d_loc});
+                (RuneSet{ .body = set }).debugMaskAt(d_loc);
+                return 0;
+            }
         },
     }
 }
