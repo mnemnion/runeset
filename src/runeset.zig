@@ -1942,6 +1942,7 @@ pub const RuneIterator = struct {
 
     fn resetToD(iter: *RuneIterator) ?Rune {
         // Try for next c
+        std.debug.print("hit reset to d\n", .{});
         const current_idx = iter.idx;
         defer assert(current_idx == iter.idx or current_idx - 1 == iter.idx or iter.idx == 0);
         var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
@@ -1949,6 +1950,7 @@ pub const RuneIterator = struct {
         const maybe_c = iter.set.maskAt(T3off).after(codeunit(iter.last.c));
         if (maybe_c) |c| {
             // resetToD means iter.idx is in T4
+            std.debug.print("found maybe_c\n", .{});
             iter.idx -= 1;
             assert(iter.set.t4offset() <= iter.idx);
             const d = iter.set.maskAt(iter.idx).first(.follow).?;
@@ -2330,8 +2332,8 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             if (d.kind != .follow) return null;
             const d_mask = toMask(set[d_loc]);
             if (d_mask.isIn(d)) return 4 else {
-                std.debug.print("no final match at index {d}!\n", .{d_loc});
-                (RuneSet{ .body = set }).debugMaskAt(d_loc);
+                // std.debug.print("no final match at index {d}!\n", .{d_loc});
+                // (RuneSet{ .body = set }).debugMaskAt(d_loc);
                 return 0;
             }
         },
