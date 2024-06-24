@@ -118,11 +118,15 @@ fn verifySetIteration(set: RuneSet) !void {
     var lastRune = Rune{ .a = 0xff, .b = 0xff, .c = 0x00, .d = 0xff };
     // Count total bytes seen
     var codeunits: usize = 0;
+    // Count total runes seen
+    var rune_count: usize = 0;
     while (setIter.next()) |rune| {
         // skipping the first rune, verify that codeunit value is increasing
         if (codeunits > 0) {
             try expect(lastRune.toCodepoint() catch unreachable < rune.toCodepoint() catch unreachable);
         }
+        codeunits += rune.byteCount();
+        rune_count += 1;
         if (lastRune.rawInt() == rune.rawInt()) {
             std.debug.print(
                 "Saw {u} and {u}\n",
@@ -148,7 +152,6 @@ fn verifySetIteration(set: RuneSet) !void {
                     .{ rune.a, rune.b, rune.c, rune.d },
                 );
                 std.debug.print("set length {d}, idx {d}\n", .{ set.body.len, setIter.idx });
-                set.debugMaskAt(setIter.idx);
             } else |_| {
                 std.debug.print(
                     "rune is invalid! {x} {x} {x} {x}\n",
@@ -156,10 +159,12 @@ fn verifySetIteration(set: RuneSet) !void {
                 );
             }
         }
+        // std.debug.print("{u}", .{rune.toCodepoint() catch unreachable});
         try expectEqual(byteCount, matchedBytes);
-        codeunits += byteCount;
     }
-    try expectEqual(codeunits, set.codeunitCount());
+    std.debug.print("\n", .{});
+    try expectEqual(set.codeunitCount(), codeunits);
+    try expectEqual(set.runeCount(), rune_count);
 }
 
 /// Verify basic set properties of an LRstrings data sample.
@@ -354,29 +359,23 @@ fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void 
         .l = l,
         .r = r,
     };
-    try verifyLRstringsData(combined_a, alloc);
-    try verifySetUnion(str, l, r, alloc);
-    try verifySetDifference(str, l, r, alloc);
-    try verifySetIntersection(str, l, r, alloc);
+    try verifyLRSets(combined_a, alloc);
     // try as separated structure
     const combined_b = LRstrings{
         .str = str,
         .l = L.str,
         .r = R.str,
     };
-    try verifyLRstringsData(combined_b, alloc);
-    try verifySetUnion(str, L.str, R.str, alloc);
-    try verifySetDifference(str, L.str, R.str, alloc);
-    try verifySetIntersection(str, L.str, R.str, alloc);
+    try verifyLRSets(combined_b, alloc);
 }
 
 //| Test Suite
 
 test "workshop" {
     const allocator = std.testing.allocator;
-    const d_set = try RuneSet.createFromConstString(deseret.str, allocator);
-    defer d_set.deinit(allocator);
-    try verifySetIteration(d_set);
+    const g_set = try RuneSet.createFromConstString(greek.str, allocator);
+    defer g_set.deinit(allocator);
+    try verifySetsOfTwoLRstrings(deseret, greek, allocator);
 }
 
 test "verify sets of LRstrings data" {
