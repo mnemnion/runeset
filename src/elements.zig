@@ -6,6 +6,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
+const assert = std.debug.assert;
 const safeMode = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
 
 /// Kinds of most significant bits in UTF-8
@@ -33,7 +34,7 @@ pub const CodeUnit = packed struct(u8) {
     ///
     /// Invalid lead bytes will return null.
     pub inline fn nMultiBytes(self: *const CodeUnit) ?u8 {
-        std.debug.assert(self.kind == .lead);
+        assert(self.kind == .lead);
         return switch (self.body) {
             0...31 => 2,
             32...47 => 3,
@@ -81,7 +82,7 @@ pub inline fn codeunit(b: u8) CodeUnit {
     return @bitCast(b);
 }
 
-/// Rune is a data structure which might be a UTF-8 scalar value.
+/// A Rune is a data structure which might be a UTF-8 scalar value.
 /// Working with UTF-8 encoded values is its purpose, but it can
 /// also have surrogate codepoints, overlong encodings, and garbage
 /// data.  Creating an invalid Rune must be done deliberately, the
@@ -97,15 +98,30 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// converted to scalar codepoints, they maintain their UTF-8 encoding
 /// internally, such that adding them to strings, formatting them, and
 /// so on, is straightforward and very fast.
+///
+/// An important category of Rune is a *conformant* Rune.  This is either
+/// a single byte of invalid data at `.a`, or is a complete sequence
+/// of a UTF-8 bit sequence, whether or not that specific sequence is
+/// valid UTF-8: what the WTF-8 standard calls "generalized" UTF-8.
+/// The Rune-creating functions provided here will only return
+/// conformant Runes.  Functions which assume conformance will assert
+/// that assumption in safety-checked build modes.
+///
+/// Most functions operating on a Rune assume that it is conformant as
+/// described above.  For some operations, we also have a `AnyRune`
+/// equivalent, which will give correct results no matter what data the
+/// backing `u32` happens to contain.
 pub const Rune = packed struct(u32) {
     a: u8,
     b: u8,
     c: u8,
     d: u8,
 
-    // Make a Rune from a slice of u8, provided that this slice is
-    // generalized UTF-8: encoding a codepoint, whether or not it is
-    // an allowed scalar value.
+    /// Make a Rune from a slice of `u8`, provided that this slice is
+    /// generalized UTF-8: encoding a codepoint, whether or not it is
+    /// an allowed scalar value.  This is safe to call on any invalid
+    /// data, provided that `[0]` is addressable, and will return `null`
+    /// if the data is invalid as described above.
     pub fn fromSlice(slice: []const u8) ?Rune {
         const a = codeunit(slice[0]);
         const nBytes = a.nBytes();
@@ -157,9 +173,10 @@ pub const Rune = packed struct(u32) {
         } else return null;
     }
 
-    /// Return a Rune from a slice of u8. Caller guarantees that [0] is addressable.
-    /// If the sequence is not valid generalized UTF-8, the Rune will be the first
-    /// byte of the slice.
+    /// Return a Rune from a slice of u8. Caller guarantees that [0] is
+    /// addressable.  If the sequence is not valid generalized UTF-8, the
+    /// Rune will be the first byte of the slice.  Thus, the returned Rune
+    /// will always be conformant.
     pub fn fromSliceAllowInvalid(slice: []const u8) Rune {
         const maybeRune = Rune.fromSlice(slice);
         if (maybeRune) |rune|
@@ -182,10 +199,10 @@ pub const Rune = packed struct(u32) {
         return .{ self.a, self.b, self.c, self.d };
     }
 
-    /// Return the number of bytes which contain data.
-    /// This does not mean that the Rune is valid Unicode.
+    /// Return the number of bytes which contain data. This does not mean
+    /// that the Rune is valid Unicode, or even conformant.
     pub fn byteCount(self: Rune) usize {
-        // .a always contains data
+        // `.a` always contains data, which may include any `u8`.
         if (self.b == 0)
             return 1
         else if (self.c == 0)
@@ -253,34 +270,42 @@ pub const Rune = packed struct(u32) {
         }
     }
 
-    /// Convert a Rune the codepoint it represents.  This does not
-    /// completely validate the Rune, it assumes that this Rune was
-    /// generated using a function which encodes malformed data using
-    /// only the .a byte (such as Rune.fromSliceAllowInvalid).
-    pub fn toCodepoint(self: Rune) !u21 {
-        if (self.a < A_MAX) return @intCast(self.a);
-        if (self.b == 0) return error.InvalidUnicode;
-        if (self.a & 0xe0 == 0xc0) {
-            const a_wide = @as(u32, self.a);
-            return @intCast(((a_wide & 0x1f) << 6) | (self.b & 0x3f));
-        } else if (self.a & 0xf0 == 0xe0) {
-            const a_wide = @as(u32, self.a);
-            const b_wide = @as(u32, self.b);
-            return @intCast(((a_wide & 0x0f) << 12) | ((b_wide & 0x3f) << 6) | (self.c & 0x3f));
-        } else if (self.a & 0xf8 == 0xf0) {
-            const a_wide = @as(u32, self.a);
-            const b_wide = @as(u32, self.b);
-            const c_wide = @as(u32, self.c);
-            return @intCast(((a_wide & 0x07) << 18) | ((b_wide & 0x3f) << 12) | ((c_wide & 0x3f) << 6) | (self.d & 0x3f));
+    /// Convert a Rune the codepoint it represents.  This function
+    /// assumes a conformant Rune.  If called on malformed data,
+    /// an error is returned.
+    pub fn toCodepoint(rune: Rune) !u21 {
+        if (rune.a < A_MAX) return @intCast(rune.a);
+        if (rune.b == 0) return error.InvalidUnicode;
+        if (rune.a & 0xe0 == 0xc0) {
+            assert(rune.b & 0xc0 == 0x80);
+            const a_wide = @as(u32, rune.a);
+            return @intCast(((a_wide & 0x1f) << 6) | (rune.b & 0x3f));
+        } else if (rune.a & 0xf0 == 0xe0) {
+            assert(rune.b & 0xc0 == 0x80);
+            assert(rune.c & 0xc0 == 0x80);
+            const a_wide = @as(u32, rune.a);
+            const b_wide = @as(u32, rune.b);
+            return @intCast(((a_wide & 0x0f) << 12) | ((b_wide & 0x3f) << 6) | (rune.c & 0x3f));
+        } else if (rune.a & 0xf8 == 0xf0) {
+            assert(rune.b & 0xc0 == 0x80);
+            assert(rune.c & 0xc0 == 0x80);
+            assert(rune.d & 0xc0 == 0x80);
+            const a_wide = @as(u32, rune.a);
+            const b_wide = @as(u32, rune.b);
+            const c_wide = @as(u32, rune.c);
+            return @intCast(((a_wide & 0x07) << 18) | ((b_wide & 0x3f) << 12) | ((c_wide & 0x3f) << 6) | (rune.d & 0x3f));
         } else return error.InvalidUnicode;
     }
 
-    /// Return the backing u32 of the Rune.
+    /// Return the backing `u32` of the Rune.
     ///
     /// This may be used for lexical comparison, but _does not_
     /// equal the Unicode codeunit value, except for ASCII.
     /// Lexical comparison of a malformed Rune is, of course,
-    /// spurious.
+    /// spurious.  That said, if generated using the Rune API,
+    /// malformed data will cluster in an identifiable region of
+    /// a lexicographic sort, greater than any ASCII Rune, and less
+    /// than any valid Rune encoded with two bytes or more.
     pub fn rawInt(self: Rune) u32 {
         return @bitCast(self);
     }
@@ -307,13 +332,197 @@ pub const Rune = packed struct(u32) {
         return (r_code == cp);
     }
 
-    // TODO writeToWriter, isScalarValue, isCodepoint,
-    //
+    /// Test whether the `Rune` is a valid generalized UTF-8 sequence,
+    /// or malformed data.  Assumes a conformant `Rune`.
+    pub fn isCodepoint(rune: Rune) bool {
+        if (rune.a > 0x7f and rune.b == 0) return false;
+        if (safeMode) {
+            const nBytes = codeunit(rune.a).nBytes();
+            if (nBytes) |nB| {
+                switch (nB) {
+                    1 => {
+                        assert(rune.b == 0);
+                        assert(rune.c == 0);
+                        assert(rune.d == 0);
+                    },
+                    2 => {
+                        assert(codeunit(rune.b).kind == .follow);
+                        assert(rune.c == 0);
+                        assert(rune.d == 0);
+                    },
+                    3 => {
+                        assert(codeunit(rune.b).kind == .follow);
+                        assert(codeunit(rune.c).kind == .follow);
+                        assert(rune.d == 0);
+                    },
+                    4 => {
+                        assert(codeunit(rune.b).kind == .follow);
+                        assert(codeunit(rune.c).kind == .follow);
+                        assert(codeunit(rune.d).kind == .follow);
+                    },
+                }
+            } else unreachable;
+        }
+        return true;
+    }
+
+    /// Test if any Rune encodes a valid generalized UTF-8 codepoint.
+    /// This may be called on arbirary data.
+    pub fn isCodepointAnyRune(rune: Rune) bool {
+        if (rune.a > 0x7f and rune.b == 0) return false;
+        const nBytes = codeunit(rune.a).nBytes();
+        if (nBytes) |nB| {
+            switch (nB) {
+                1 => {
+                    if (rune.b == 0 and rune.c == 0 and rune.d == 0) {
+                        return true;
+                    } else {
+                        return false;
+                    }
+                },
+                2 => {
+                    if (codeunit(rune.b).kind == .follow and rune.c == 0 and rune.d == 0) {
+                        return true;
+                    } else {
+                        return false;
+                    }
+                },
+                3 => {
+                    const b_follow = codeunit(rune.b).kind == .follow;
+                    const c_follow = codeunit(rune.c).kind == .follow;
+                    if (b_follow and c_follow and rune.d == 0) {
+                        return true;
+                    } else {
+                        return false;
+                    }
+                },
+                4 => {
+                    const b_follow = codeunit(rune.b).kind == .follow;
+                    const c_follow = codeunit(rune.c).kind == .follow;
+                    const d_follow = codeunit(rune.d).kind == .follow;
+                    if (b_follow and c_follow and d_follow) {
+                        return true;
+                    } else {
+                        return false;
+                    }
+                },
+            }
+        } else {
+            return false;
+        }
+    }
+
+    // TODO writeToWriter
+
+    /// Test whether a `Rune` encodes a valid Unicode scalar value.
+    /// This function makes no assumptions about the contents of the `Rune`,
+    /// as such, it validates the byte sequences completely.
+    pub fn isScalarValueAnyRune(rune: Rune) bool {
+        // Reference: Table 3-7 of The Unicode Standard 15.0
+        // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
+        if (rune.a <= 0x7f) {
+            // 1-byte sequence: 00..7F
+            return true;
+        } else if (rune.b == 0) {
+            return false;
+        } else if (rune.a >= 0xc2 and rune.a <= 0xdf) {
+            // 2-byte sequence: C2..DF 80..BF
+            return (rune.b & 0xc0) == 0x80;
+        } else if (rune.a == 0xe0) {
+            // 3-byte sequence: E0 A0..BF 80..BF
+            return (rune.b >= 0xa0 and rune.b <= 0xbf) and (rune.c & 0xc0) == 0x80;
+        } else if (rune.a >= 0xe1 and rune.a <= 0xec) {
+            // 3-byte sequence: E1..EC 80..BF 80..BF
+            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+        } else if (rune.a == 0xed) {
+            // 3-byte sequence: ED 80..9F 80..BF
+            return (rune.b >= 0x80 and rune.b <= 0x9f) and (rune.c & 0xc0) == 0x80;
+        } else if (rune.a >= 0xee and rune.a <= 0xef) {
+            // 3-byte sequence: EE..EF 80..BF 80..BF
+            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+        } else if (rune.a == 0xf0) {
+            // 4-byte sequence: F0 90..BF 80..BF 80..BF
+            return (rune.b >= 0x90 and rune.b <= 0xbf) and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
+        } else if (rune.a >= 0xf1 and rune.a <= 0xf3) {
+            // 4-byte sequence: F1..F3 80..BF 80..BF 80..BF
+            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
+        } else if (rune.a == 0xf4) {
+            // 4-byte sequence: F4 80..8F 80..BF 80..BF
+            return (rune.b >= 0x80 and rune.b <= 0x8f) and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
+        } else {
+            return false;
+        }
+    }
+
+    /// Test whether the `Rune` is a scalar value, that is, that it
+    /// represents valid UTF-8.  This function assumes that the `Rune`
+    /// conforms to the Rune API, and this conformance is asserted in
+    /// safety builds.  For a version which gives correct results for
+    /// arbitrary data, use `isScalarValueAnyRune`.
+    pub fn isScalarValue(rune: Rune) bool {
+        // Reference: Table 3-7 of The Unicode Standard 15.0
+        // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
+        if (rune.a <= 0x7f) {
+            // 1-byte sequence: 00..7F
+            return true;
+        } else if (rune.b == 0) {
+            return false;
+        } else if (rune.a >= 0xc2 and rune.a <= 0xdf) {
+            // 2-byte sequence: C2..DF 80..BF
+            assert(rune.b & 0xc0 == 0x80);
+            return true;
+        } else if (rune.a == 0xe0) {
+            // 3-byte sequence: E0 A0..BF 80..BF
+            if (rune.b >= 0xa0 and rune.b <= 0xbf) {
+                assert(rune.c & 0xc0 == 0x80);
+                return true;
+            } else {
+                return false;
+            }
+        } else if (rune.a >= 0xe1 and rune.a <= 0xec) {
+            // 3-byte sequence: E1..EC 80..BF 80..BF
+            assert(rune.b & 0xc0 == 0x80);
+            assert(rune.c & 0xc0 == 0x80);
+            return true;
+        } else if (rune.a == 0xed) {
+            // 3-byte sequence: ED 80..9F 80..BF
+            return (rune.b >= 0x80 and rune.b <= 0x9f) and (rune.c & 0xc0) == 0x80;
+        } else if (rune.a >= 0xee and rune.a <= 0xef) {
+            // 3-byte sequence: EE..EF 80..BF 80..BF
+            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+        } else if (rune.a == 0xf0) {
+            // 4-byte sequence: F0 90..BF 80..BF 80..BF
+            if (rune.b >= 0x90 and rune.b <= 0xbf) {
+                assert(rune.c & 0xc0 == 0x80);
+                assert(rune.d & 0xc0 == 0x80);
+                return true;
+            } else {
+                return false;
+            }
+        } else if (rune.a >= 0xf1 and rune.a <= 0xf3) {
+            // 4-byte sequence: F1..F3 80..BF 80..BF 80..BF
+            assert(rune.b & 0xc0 == 0x80);
+            assert(rune.c & 0xc0 == 0x80);
+            assert(rune.d & 0xc0 == 0x80);
+            return true;
+        } else if (rune.a == 0xf4) {
+            // 4-byte sequence: F4 80..8F 80..BF 80..BF
+            if (rune.b >= 0x80 and rune.b <= 0x8f) {
+                assert(rune.c & 0xc0 == 0x80);
+                assert(rune.d & 0xc0 == 0x80);
+                return true;
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
 };
 
 /// Bitmask for runesets
 ///
-/// We define our own bitset because the operations we need to
+/// We define our own bitset, because the operations we need to
 /// perform only overlap with IntegerBitSet for trivial one-liners,
 /// and furthermore, we need nondestructive versions of the basic
 /// operations, which aren't a part of the IntegerBitSet interface.
@@ -336,7 +545,7 @@ pub const Mask = struct {
     }
 
     pub fn remove(self: *Mask, cu: CodeUnit) void {
-        std.debug.assert(self.isIn(cu));
+        assert(self.isIn(cu));
         self.m &= ~cu.inMask();
     }
 
@@ -344,8 +553,8 @@ pub const Mask = struct {
     /// Caller guarantees that the range is ordered, and
     /// that the bytes are of the same `.kind`.
     pub fn addRange(self: *Mask, c1: CodeUnit, c2: CodeUnit) void {
-        std.debug.assert(c1.kind == c2.kind);
-        std.debug.assert(c1.body < c2.body);
+        assert(c1.kind == c2.kind);
+        assert(c1.body < c2.body);
         const mask = std.math.pow(u64, 2, (c2.body - c1.body) + 1) - 1;
         self.m |= mask << c1.body;
     }
@@ -385,7 +594,7 @@ pub const Mask = struct {
     /// Return the next element of the Mask.
     /// It is illegal to pass this function a nonexistent element.
     pub inline fn after(self: Mask, cu: CodeUnit) ?CodeUnit {
-        std.debug.assert(self.isIn(cu));
+        assert(self.isIn(cu));
         if (cu.body == 63) return null;
         const kind = cu.kind;
         var next: u6 = cu.body + 1;

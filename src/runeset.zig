@@ -11,7 +11,6 @@
 //! Additionally, these may be combined using the basic set operations:
 //! union, difference, and intersection, as well as tested for equality.
 //!
-//! TODO iteration of codeunits
 
 const std = @import("std");
 const builtin = @import("builtin");
