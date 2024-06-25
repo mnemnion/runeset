@@ -117,5 +117,5 @@ pub fn build(b: *std.Build) void {
     cov_run.addArtifactArg(lib_unit_tests);
 
     cov_step.dependOn(&cov_run.step);
-    b.default_step.dependOn(cov_step);
+    // b.default_step.dependOn(cov_step);
 }
