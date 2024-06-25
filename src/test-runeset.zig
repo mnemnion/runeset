@@ -127,39 +127,10 @@ fn verifySetIteration(set: RuneSet) !void {
         }
         codeunits += rune.byteCount();
         rune_count += 1;
-        if (lastRune.rawInt() == rune.rawInt()) {
-            std.debug.print(
-                "Saw {u} and {u}\n",
-                .{ lastRune.toCodepoint() catch unreachable, rune.toCodepoint() catch unreachable },
-            );
-            std.debug.print(
-                "rune bytes: {x} {x} {x} {x}\n",
-                .{ rune.a, rune.b, rune.c, rune.d },
-            );
-            try expect(false);
-        } else {
-            lastRune = rune;
-        }
+        lastRune = rune;
         const runeArray = rune.toByteArray();
         const matchedBytes = set.matchOne(&runeArray).?;
         const byteCount = rune.byteCount();
-        if (safemode and byteCount != matchedBytes) {
-            const rune_point = rune.toCodepoint();
-            if (rune_point) |r| {
-                std.debug.print("rune {u} not a member of set\n", .{r});
-                std.debug.print(
-                    "rune bytes: {x} {x} {x} {x}\n",
-                    .{ rune.a, rune.b, rune.c, rune.d },
-                );
-                std.debug.print("set length {d}, idx {d}\n", .{ set.body.len, setIter.idx });
-            } else |_| {
-                std.debug.print(
-                    "rune is invalid! {x} {x} {x} {x}\n",
-                    .{ rune.a, rune.b, rune.c, rune.d },
-                );
-            }
-        }
-        // std.debug.print("{u}", .{rune.toCodepoint() catch unreachable});
         try expectEqual(byteCount, matchedBytes);
     }
     std.debug.print("\n", .{});
@@ -371,11 +342,10 @@ fn verifySetsOfTwoLRstrings(L: LRstrings, R: LRstrings, alloc: Allocator) !void 
 
 //| Test Suite
 
-test "workshop" {
+test "iterator edge cases" {
     const allocator = std.testing.allocator;
-    const g_set = try RuneSet.createFromConstString(greek.str, allocator);
-    defer g_set.deinit(allocator);
-    try verifySetsOfTwoLRstrings(deseret, greek, allocator);
+    try withStringVerifySetProperties("abcdefghijklmnopqrstuvwxyz", allocator);
+    try withStringVerifySetProperties("012345" ++ greek.str, allocator);
 }
 
 test "verify sets of LRstrings data" {

@@ -118,7 +118,7 @@ pub const Rune = packed struct(u32) {
                     .c = 0,
                     .d = 0,
                 },
-                .follow => return null,
+                .follow => unreachable, // nbytes is null for this case
                 .lead => {
                     switch (nB) {
                         2 => {
@@ -385,15 +385,7 @@ pub const Mask = struct {
     /// Return the next element of the Mask.
     /// It is illegal to pass this function a nonexistent element.
     pub inline fn after(self: Mask, cu: CodeUnit) ?CodeUnit {
-        if (safeMode) {
-            if (!self.isIn(cu)) {
-                std.debug.print(
-                    "{} with body {d}, byte {d}, not in 0x{x:0>16}\n",
-                    .{ cu.kind, cu.body, cu.byte(), self.m },
-                );
-                std.debug.assert(false);
-            }
-        }
+        std.debug.assert(self.isIn(cu));
         if (cu.body == 63) return null;
         const kind = cu.kind;
         var next: u6 = cu.body + 1;
@@ -729,4 +721,22 @@ test "rune tests" {
     try std.testing.expectEqualStrings(strD, &rDs);
     try expect(rD.equalToCodepoint('🤔'));
     try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
+}
+
+test "invalid Rune tests" {
+    try expectEqual(null, Rune.fromSlice("\x81abc"));
+    try expectEqual(null, Rune.fromSlice("\x9f0"));
+    try expectEqual(null, Rune.fromSlice("\xcer"));
+    try expectEqual(null, Rune.fromSlice("\xff\xff\xff"));
+    try expectEqual(null, Rune.fromSlice("\xe2✓"));
+    try expectEqual(null, Rune.fromSlice("\xf0\x9f\x98q"));
+    try expectError(
+        error.InvalidUnicode,
+        (Rune{
+            .a = 0xff,
+            .b = 0xff,
+            .c = 0,
+            .d = 0,
+        }).toCodepoint(),
+    );
 }
