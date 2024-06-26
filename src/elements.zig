@@ -103,13 +103,13 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// sequenced codepoint, whether or not that specific sequence is valid
 /// UTF-8: what the WTF-8 standard calls "generalized" UTF-8.
 ///
-/// The Rune-AP functions provided will only return conforming Runes as
+/// The Rune API functions will return only conforming Runes as we have
 /// defined above.  Functions which assume conformance will assert that
 /// assumption in safety-checked build modes.
 ///
-/// Most functions operating on a Rune assume that it is conformant as
-/// described above.  Som functions come in an `AnyRune` variant, this
-/// will give correct results, no matter what data the backing integer
+/// Most functions operating on a Rune assume that it conforms as we've
+/// previously described.  Some functions come in an `AnyRune` variant,
+/// those will give correct results, no matter what the backing integer
 /// happens to contain.
 pub const Rune = packed struct(u32) {
     a: u8,
@@ -134,7 +134,7 @@ pub const Rune = packed struct(u32) {
                     .c = 0,
                     .d = 0,
                 },
-                .follow => unreachable, // nbytes is null for this case
+                .follow => unreachable, // nBytes is null for this case
                 .lead => {
                     switch (nB) {
                         2 => {
@@ -193,7 +193,9 @@ pub const Rune = packed struct(u32) {
             };
     }
 
-    /// Return a tuple containing the bytes of a Rune.
+    /// Return a tuple containing the bytes of a Rune.  Use this if you
+    /// want to destructure some bytes into variables, or `toByteArray`
+    /// otherwise.
     pub fn toByteTuple(self: Rune) struct { u8, u8, u8, u8 } {
         return .{ self.a, self.b, self.c, self.d };
     }
@@ -203,8 +205,8 @@ pub const Rune = packed struct(u32) {
         return .{ self.a, self.b, self.c, self.d };
     }
 
-    /// Return the number of bytes which contain data. This function is
-    /// valid to call on any `Rune`, conformant or otherwise.
+    /// Return the number of bytes which contain data.  This produces a
+    /// valid result for any `Rune`, conformant or not.
     pub fn byteCount(self: Rune) usize {
         // `.a` always contains data, which may include any `u8`.
         if (self.b == 0)
@@ -275,9 +277,9 @@ pub const Rune = packed struct(u32) {
     }
 
     /// Convert a `Rune` to the codepoint it represents.  This function
-    /// assumes a conformant `Rune`.  If called on malformed data,
-    /// an error is returned.  This will return a codepoint for a `Rune`
-    /// representing a surrogate.
+    /// assumes a conformant `Rune`.  An error is returned If called on
+    /// malformed data.  This will return a codepoint for a `Rune` that
+    /// represents a surrogate.
     pub fn toCodepoint(rune: Rune) !u21 {
         if (rune.a < A_MAX) return @intCast(rune.a);
         if (rune.b == 0) return error.InvalidUnicode;
@@ -303,29 +305,28 @@ pub const Rune = packed struct(u32) {
         } else return error.InvalidUnicode;
     }
 
-    /// Convert a Rune to the codepoint it represents.
-    /// It is safety-checked illegal behavior to call this
-    /// on a Rune which doesn't represent a codepoint.
+    /// Convert a `Rune` to the codepoint it represents.  Calling this
+    /// function on a `Rune` which isn't a codepoint is safety-checked
+    ///     illegal behavior.
     pub fn toCodepointAssumeValid(rune: Rune) u21 {
         return rune.toCodepoint() catch unreachable;
     }
 
     /// Return the backing `u32` of the Rune.
     ///
-    /// This may be used for lexical comparison, but _does not_
-    /// equal the Unicode codeunit value, except for ASCII.
-    /// Lexical comparison of a malformed `Rune` is, of course,
-    /// spurious.  That said, if generated using the `Rune` API,
-    /// malformed data will cluster in an identifiable region of
-    /// a lexicographic sort, greater than any ASCII `Rune`, and less
-    /// than any valid `Rune` encoded with two bytes or more.
+    /// This may be used for lexical comparison, but isn't equal to the
+    /// Unicode codeunit value of the `Rune`, except for ASCII one-byte
+    /// codepoints.  If the `Rune` is conformant, any malformed data is
+    /// going to cluster in an identifiable region of a lexicographical
+    /// sort, greater than any ASCII `Rune`, and less than any two-byte
+    /// `Rune`.
     pub fn rawInt(self: Rune) u32 {
         return @bitCast(self);
     }
 
-    /// Copy the bytes of a Rune to the start of the provided slice.
-    /// Caller is responsible for assuring the slice has sufficient
-    /// room.  Returns the number of bytes copied.
+    /// Copy every byte of a `Rune` to the start of the slice.  This is
+    /// legal to call on any `Rune`.  Returns the total amount of bytes
+    /// copied.  Caller assures that the slice has sufficient room.
     pub fn copyToSlice(self: Rune, slice: []u8) usize {
         slice[0] = self.a;
         if (self.b == 0) return 1;
@@ -337,16 +338,15 @@ pub const Rune = packed struct(u32) {
         return 4;
     }
 
-    /// Test whether the Rune represents the provided codepoint
-    /// as encoded in UTF-8.  It is legal for the Rune to be
-    /// invalid UTF-8.
+    /// Test whether the `Rune` encodes the codepoint argument, whether
+    /// the Rune is conformant or not.
     pub fn equalToCodepoint(self: Rune, cp: u21) bool {
         const r_code = self.toCodepoint() catch return false;
         return (r_code == cp);
     }
 
-    /// Test whether the `Rune` is a valid generalized UTF-8 sequence,
-    /// or malformed data.  Assumes a conformant `Rune`.
+    /// Tests whether the `Rune` represents a valid (generalized) UTF-8
+    /// sequence, or malformed data.  Assumes a conformant `Rune`.
     pub fn isCodepoint(rune: Rune) bool {
         if (rune.a > 0x7f and rune.b == 0) return false;
         if (safeMode) {
@@ -379,8 +379,8 @@ pub const Rune = packed struct(u32) {
         return true;
     }
 
-    /// Test if any Rune encodes a valid generalized UTF-8 codepoint.
-    /// This may be called on arbirary data.
+    /// Test if the `Rune` encodes a valid generalized UTF-8 codepoint.
+    /// This may be called on a non-conforming `Rune`.
     pub fn isCodepointAnyRune(rune: Rune) bool {
         if (rune.a > 0x7f and rune.b == 0) return false;
         const nBytes = codeunit(rune.a).nBytes();
@@ -425,9 +425,9 @@ pub const Rune = packed struct(u32) {
         }
     }
 
-    /// Test whether a `Rune` encodes a valid Unicode scalar value.
-    /// This function makes no assumptions about the contents of the `Rune`,
-    /// as such, it validates the byte sequences completely.
+    /// Test whether a `Rune` encodes a valid Unicode scalar value.  It
+    /// makes no assumptions about the contents of the `Rune`, as such,
+    /// it validates the byte sequence fully.
     pub fn isScalarValueAnyRune(rune: Rune) bool {
         // Reference: Table 3-7 of The Unicode Standard 15.0
         // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
@@ -465,11 +465,10 @@ pub const Rune = packed struct(u32) {
         }
     }
 
-    /// Test whether the `Rune` is a scalar value, that is, that it
-    /// represents valid UTF-8.  This function assumes that the `Rune`
-    /// conforms to the Rune API, and this conformance is asserted in
-    /// safety builds.  For a version which gives correct results for
-    /// arbitrary data, use `isScalarValueAnyRune`.
+    /// Test whether the `Rune` encodes a UTF-8 scalar value.  This may
+    /// only be called on conformant `Runes`, and this property will be
+    /// asserted in safety build modes.  For `Rune`s which are possibly
+    /// non-conforming, use `isScalarValueAnyRune`.
     pub fn isScalarValue(rune: Rune) bool {
         // Reference: Table 3-7 of The Unicode Standard 15.0
         // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
