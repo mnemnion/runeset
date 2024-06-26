@@ -1,4 +1,4 @@
-//!  libruneset: a Zig library for fast utf-8 charsets
+//! libruneset: a Zig library for fast UTF-8 charsets
 //!
 //! The elements namespace provides data structures for working
 //! with UTF-8 encoded data.
@@ -82,35 +82,35 @@ pub inline fn codeunit(b: u8) CodeUnit {
     return @bitCast(b);
 }
 
-/// A Rune is a data structure which might be a UTF-8 scalar value.
-/// Working with UTF-8 encoded values is its purpose, but it can
-/// also have surrogate codepoints, overlong encodings, and garbage
-/// data.  Creating an invalid Rune must be done deliberately, the
-/// main constructor will return null for bad data.
+/// A Rune is a data structure which may or may not hold a UTF-8 scalar
+/// value.  While working with UTF-8 encoded values is the intention of
+/// the struct, it can also hold surrogate codepoints and garbage data.
+/// Creating an invalid Rune must be done deliberately, as the provided
+/// API will return `null` for bad data by default.
 ///
-/// A Rune is a packed u32 with four u8 fields: a, b, c, and d.
-/// If all four are 0, this represents NUL or U+0.  If a is greater
-/// than 0, and any of b, c, or d are 0, they are not a part of the
-/// value which the Rune encodes.
+/// A Rune is a packed u32 with four u8 fields: a, b, c, and d.  If all
+/// four are 0, this represents NUL or U+0.  If a is greater than 0 and
+/// any of b, c, or d are 0, they are not a part of the value which the
+/// Rune encodes.
 ///
-/// Two Runes which both encode valid codepoints, compared with @bitCast,
-/// will sort according to their codepoint order.  While they can be
-/// converted to scalar codepoints, they maintain their UTF-8 encoding
-/// internally, such that adding them to strings, formatting them, and
-/// so on, is straightforward and very fast.
+/// Two Runes which both encode valid codepoints, compared as raw data,
+/// will sort according to their codepoint order.  These maintain UTF-8
+/// encoding internally, such that adding them to a string or streaming
+/// their values, is straightforward and very fast.
 ///
-/// An important category of Rune is a *conformant* Rune.  This is either
-/// a single byte of invalid data at `.a`, or is a complete sequence
-/// of a UTF-8 bit sequence, whether or not that specific sequence is
-/// valid UTF-8: what the WTF-8 standard calls "generalized" UTF-8.
-/// The Rune-creating functions provided here will only return
-/// conformant Runes.  Functions which assume conformance will assert
-/// that assumption in safety-checked build modes.
+/// An important category of Rune is a *conformant* Rune.  This will be
+/// either a single byte of invalid data at `.a`, or a is complete byte
+/// sequenced codepoint, whether or not that specific sequence is valid
+/// UTF-8: what the WTF-8 standard calls "generalized" UTF-8.
+///
+/// The Rune-AP functions provided will only return conforming Runes as
+/// defined above.  Functions which assume conformance will assert that
+/// assumption in safety-checked build modes.
 ///
 /// Most functions operating on a Rune assume that it is conformant as
-/// described above.  For some operations, we also have a `AnyRune`
-/// equivalent, which will give correct results no matter what data the
-/// backing `u32` happens to contain.
+/// described above.  Som functions come in an `AnyRune` variant, this
+/// will give correct results, no matter what data the backing integer
+/// happens to contain.
 pub const Rune = packed struct(u32) {
     a: u8,
     b: u8,
@@ -120,8 +120,8 @@ pub const Rune = packed struct(u32) {
     /// Make a Rune from a slice of `u8`, provided that this slice is
     /// generalized UTF-8: encoding a codepoint, whether or not it is
     /// an allowed scalar value.  This is safe to call on any invalid
-    /// data, provided that `[0]` is addressable, and will return `null`
-    /// if the data is invalid as described above.
+    /// data, given that `[0]` is addressable, and returning a `null`
+    /// if the data is invalid as defined above.
     pub fn fromSlice(slice: []const u8) ?Rune {
         const a = codeunit(slice[0]);
         const nBytes = a.nBytes();
@@ -157,15 +157,18 @@ pub const Rune = packed struct(u32) {
                             }
                         else
                             return null,
-                        4 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow)
-                            return Rune{
-                                .a = slice[0],
-                                .b = slice[1],
-                                .c = slice[2],
-                                .d = slice[3],
-                            }
-                        else
-                            return null,
+                        4 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                            // omit values without an equivalent codepoint
+                            if (slice[1] <= 0x8f)
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = slice[2],
+                                    .d = slice[3],
+                                }
+                            else
+                                return null;
+                        } else return null,
                         else => unreachable,
                     }
                 },
@@ -173,9 +176,9 @@ pub const Rune = packed struct(u32) {
         } else return null;
     }
 
-    /// Return a Rune from a slice of u8. Caller guarantees that [0] is
+    /// Return a Rune from a `[]const u8`.  Caller guarantees that [0] is
     /// addressable.  If the sequence is not valid generalized UTF-8, the
-    /// Rune will be the first byte of the slice.  Thus, the returned Rune
+    /// Rune will be the first byte of the slice.  Thus the returned Rune
     /// will always be conformant.
     pub fn fromSliceAllowInvalid(slice: []const u8) Rune {
         const maybeRune = Rune.fromSlice(slice);
@@ -195,12 +198,13 @@ pub const Rune = packed struct(u32) {
         return .{ self.a, self.b, self.c, self.d };
     }
 
+    /// Return a `[4]u8` of the bytes in the Rune.
     pub fn toByteArray(self: Rune) [4]u8 {
         return .{ self.a, self.b, self.c, self.d };
     }
 
-    /// Return the number of bytes which contain data. This does not mean
-    /// that the Rune is valid Unicode, or even conformant.
+    /// Return the number of bytes which contain data. This function is
+    /// valid to call on any `Rune`, conformant or otherwise.
     pub fn byteCount(self: Rune) usize {
         // `.a` always contains data, which may include any `u8`.
         if (self.b == 0)
@@ -223,10 +227,10 @@ pub const Rune = packed struct(u32) {
     const M_FOLLOW: u32 = 0x80;
     const M_LOW: u32 = 0x3f;
 
-    /// Return a Rune encoding a generalized UTF-8 code point sequence
-    /// corresponding to the integer value provided.  This includes
-    /// invalid surrogates and noncharacters.  Throws an error if the
-    /// integer is out of range.
+    /// Return a `Rune` which encodes a UTF-8 code point sequence which
+    /// corresponds to the integer value provided.  This will produce a
+    /// `Rune` for invalid surrogate codepoints.  If the integer is out
+    /// of range, this function will return an error.
     pub fn fromCodepoint(cp: u21) !Rune {
         if (cp < A_MAX) {
             return Rune{
@@ -270,9 +274,10 @@ pub const Rune = packed struct(u32) {
         }
     }
 
-    /// Convert a Rune the codepoint it represents.  This function
-    /// assumes a conformant Rune.  If called on malformed data,
-    /// an error is returned.
+    /// Convert a `Rune` to the codepoint it represents.  This function
+    /// assumes a conformant `Rune`.  If called on malformed data,
+    /// an error is returned.  This will return a codepoint for a `Rune`
+    /// representing a surrogate.
     pub fn toCodepoint(rune: Rune) !u21 {
         if (rune.a < A_MAX) return @intCast(rune.a);
         if (rune.b == 0) return error.InvalidUnicode;
@@ -290,6 +295,7 @@ pub const Rune = packed struct(u32) {
             assert(rune.b & 0xc0 == 0x80);
             assert(rune.c & 0xc0 == 0x80);
             assert(rune.d & 0xc0 == 0x80);
+            assert(!(rune.a == 0xf4 and rune.b > 0x8f));
             const a_wide = @as(u32, rune.a);
             const b_wide = @as(u32, rune.b);
             const c_wide = @as(u32, rune.c);
@@ -297,15 +303,22 @@ pub const Rune = packed struct(u32) {
         } else return error.InvalidUnicode;
     }
 
+    /// Convert a Rune to the codepoint it represents.
+    /// It is safety-checked illegal behavior to call this
+    /// on a Rune which doesn't represent a codepoint.
+    pub fn toCodepointAssumeValid(rune: Rune) u21 {
+        return rune.toCodepoint() catch unreachable;
+    }
+
     /// Return the backing `u32` of the Rune.
     ///
     /// This may be used for lexical comparison, but _does not_
     /// equal the Unicode codeunit value, except for ASCII.
-    /// Lexical comparison of a malformed Rune is, of course,
-    /// spurious.  That said, if generated using the Rune API,
+    /// Lexical comparison of a malformed `Rune` is, of course,
+    /// spurious.  That said, if generated using the `Rune` API,
     /// malformed data will cluster in an identifiable region of
-    /// a lexicographic sort, greater than any ASCII Rune, and less
-    /// than any valid Rune encoded with two bytes or more.
+    /// a lexicographic sort, greater than any ASCII `Rune`, and less
+    /// than any valid `Rune` encoded with two bytes or more.
     pub fn rawInt(self: Rune) u32 {
         return @bitCast(self);
     }
@@ -411,8 +424,6 @@ pub const Rune = packed struct(u32) {
             return false;
         }
     }
-
-    // TODO writeToWriter
 
     /// Test whether a `Rune` encodes a valid Unicode scalar value.
     /// This function makes no assumptions about the contents of the `Rune`,
