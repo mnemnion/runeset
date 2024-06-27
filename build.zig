@@ -83,26 +83,17 @@ pub fn build(b: *std.Build) void {
     lib_unit_tests.root_module.addOptions("config", options);
     run_lib_unit_tests.has_side_effects = true;
 
-    const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
     b.installDirectory(.{
         .source_dir = lib.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "../docs",
     });
 
-    const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
-    test_step.dependOn(&run_exe_unit_tests.step);
 
     // Adds a step to generate code coverage
     const cov_step = b.step("cov", "Generate coverage (kcov must be installed)");
@@ -115,7 +106,7 @@ pub fn build(b: *std.Build) void {
         "kcov-output",
     });
     cov_run.addArtifactArg(lib_unit_tests);
-
     cov_step.dependOn(&cov_run.step);
-    // b.default_step.dependOn(cov_step);
+    _ = cov_run.captureStdOut();
+    _ = cov_run.captureStdErr();
 }
