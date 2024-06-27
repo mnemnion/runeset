@@ -120,7 +120,7 @@ pub const Rune = packed struct(u32) {
     /// Make a Rune from a slice of `u8`, provided that this slice is
     /// generalized UTF-8: encoding a codepoint, whether or not it is
     /// an allowed scalar value.  This is safe to call on any invalid
-    /// data, given that `[0]` is addressable, and returning a `null`
+    /// data, given that `[0]` is addressable.  It will return `null`
     /// if the data is invalid as defined above.
     pub fn fromSlice(slice: []const u8) ?Rune {
         const a = codeunit(slice[0]);
@@ -196,24 +196,24 @@ pub const Rune = packed struct(u32) {
     /// Return a tuple containing the bytes of a Rune.  Use this if you
     /// want to destructure some bytes into variables, or `toByteArray`
     /// otherwise.
-    pub fn toByteTuple(self: Rune) struct { u8, u8, u8, u8 } {
-        return .{ self.a, self.b, self.c, self.d };
+    pub fn toByteTuple(rune: Rune) struct { u8, u8, u8, u8 } {
+        return .{ rune.a, rune.b, rune.c, rune.d };
     }
 
     /// Return a `[4]u8` of the bytes in the Rune.
-    pub fn toByteArray(self: Rune) [4]u8 {
-        return .{ self.a, self.b, self.c, self.d };
+    pub fn toByteArray(rune: Rune) [4]u8 {
+        return .{ rune.a, rune.b, rune.c, rune.d };
     }
 
     /// Return the number of bytes which contain data.  This produces a
     /// valid result for any `Rune`, conformant or not.
-    pub fn byteCount(self: Rune) usize {
+    pub fn byteCount(rune: Rune) usize {
         // `.a` always contains data, which may include any `u8`.
-        if (self.b == 0)
+        if (rune.b == 0)
             return 1
-        else if (self.c == 0)
+        else if (rune.c == 0)
             return 2
-        else if (self.d == 0)
+        else if (rune.d == 0)
             return 3
         else
             return 4;
@@ -320,28 +320,28 @@ pub const Rune = packed struct(u32) {
     /// going to cluster in an identifiable region of a lexicographical
     /// sort, greater than any ASCII `Rune`, and less than any two-byte
     /// `Rune`.
-    pub fn rawInt(self: Rune) u32 {
-        return @bitCast(self);
+    pub fn rawInt(rune: Rune) u32 {
+        return @bitCast(rune);
     }
 
     /// Copy every byte of a `Rune` to the start of the slice.  This is
     /// legal to call on any `Rune`.  Returns the total amount of bytes
     /// copied.  Caller assures that the slice has sufficient room.
-    pub fn copyToSlice(self: Rune, slice: []u8) usize {
-        slice[0] = self.a;
-        if (self.b == 0) return 1;
-        slice[1] = self.b;
-        if (self.c == 0) return 2;
-        slice[2] = self.c;
-        if (self.d == 0) return 3;
-        slice[3] = self.d;
+    pub fn copyToSlice(rune: Rune, slice: []u8) usize {
+        slice[0] = rune.a;
+        if (rune.b == 0) return 1;
+        slice[1] = rune.b;
+        if (rune.c == 0) return 2;
+        slice[2] = rune.c;
+        if (rune.d == 0) return 3;
+        slice[3] = rune.d;
         return 4;
     }
 
     /// Test whether the `Rune` encodes the codepoint argument, whether
     /// the Rune is conformant or not.
-    pub fn equalToCodepoint(self: Rune, cp: u21) bool {
-        const r_code = self.toCodepoint() catch return false;
+    pub fn equalToCodepoint(rune: Rune, cp: u21) bool {
+        const r_code = rune.toCodepoint() catch return false;
         return (r_code == cp);
     }
 
