@@ -124,6 +124,7 @@ fn verifySetIteration(set: RuneSet) !void {
         // skipping the first rune, verify that codeunit value is increasing
         if (codeunits > 0) {
             try expect(lastRune.toCodepoint() catch unreachable < rune.toCodepoint() catch unreachable);
+            try expect(lastRune.rawInt() < rune.rawInt());
         }
         codeunits += rune.byteCount();
         rune_count += 1;
