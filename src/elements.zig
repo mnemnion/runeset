@@ -17,7 +17,7 @@ pub const RuneKind = enum(u2) {
     lead,
 };
 
-/// Useful repr of one CodeUnit of a Rune
+/// Packed `u8` struct representing one codeunit of UTF-8.
 pub const CodeUnit = packed struct(u8) {
     body: u6,
     kind: RuneKind,
@@ -47,10 +47,9 @@ pub const CodeUnit = packed struct(u8) {
         };
     }
 
-    /// Given the lead byte of a valid Rune, return the
-    /// number of bytes which encode it.
-    ///
-    /// Will return null for invalid leads.
+    /// Given a valid lead byte, return the number of bytes that should
+    /// make up the code unit sequence.  Will return `null` if the lead
+    /// byte is invalid.
     pub inline fn nBytes(self: *const CodeUnit) ?u8 {
         switch (self.kind) {
             .low, .hi => return 1,
@@ -72,6 +71,7 @@ pub const CodeUnit = packed struct(u8) {
             return ~((@as(u64, 1) << (self.body + 1)) - 1);
     }
 
+    /// Cast the `CodeUnit` to its backing `u8`.
     pub inline fn byte(self: *const CodeUnit) u8 {
         return @bitCast(self.*);
     }
@@ -93,13 +93,16 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// any of b, c, or d are 0, they are not a part of the value which the
 /// Rune encodes.
 ///
+/// These fields are defined in the backing `u32` such that `a` is most
+/// significant, and `d` is least.
+///
 /// Two Runes which both encode valid codepoints, compared as raw data,
 /// will sort according to their codepoint order.  These maintain UTF-8
 /// encoding internally, such that adding them to a string or streaming
 /// their values, is straightforward and very fast.
 ///
 /// An important category of Rune is a *conformant* Rune.  This will be
-/// either a single byte of invalid data at `.a`, or a is complete byte
+/// either a single byte of invalid data at `.a`, or is a complete byte
 /// sequenced codepoint, whether or not that specific sequence is valid
 /// UTF-8: what the WTF-8 standard calls "generalized" UTF-8.
 ///
@@ -112,10 +115,12 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// those will give correct results, no matter what the backing integer
 /// happens to contain.
 pub const Rune = packed struct(u32) {
-    a: u8,
-    b: u8,
-    c: u8,
     d: u8,
+    c: u8,
+    b: u8,
+    a: u8,
+
+    // TODO pack malformed data into `d`, not `a`.
 
     /// Make a Rune from a slice of `u8`, provided that this slice is
     /// generalized UTF-8: encoding a codepoint, whether or not it is
@@ -159,15 +164,15 @@ pub const Rune = packed struct(u32) {
                             return null,
                         4 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
                             // omit values without an equivalent codepoint
-                            if (slice[1] <= 0x8f)
-                                return Rune{
-                                    .a = slice[0],
-                                    .b = slice[1],
-                                    .c = slice[2],
-                                    .d = slice[3],
-                                }
-                            else
+                            if (slice[0] == 0xf4 and slice[1] >= 0x8f) {
                                 return null;
+                            }
+                            return Rune{
+                                .a = slice[0],
+                                .b = slice[1],
+                                .c = slice[2],
+                                .d = slice[3],
+                            };
                         } else return null,
                         else => unreachable,
                     }
