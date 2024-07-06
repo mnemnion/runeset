@@ -41,8 +41,7 @@ pub const CodeUnit = packed struct(u8) {
     pub inline fn nMultiBytes(self: *const CodeUnit) ?u8 {
         assert(self.kind == .lead);
         return switch (self.body) {
-            0, 1 => null,
-            2...31 => 2,
+            0...31 => 2,
             32...47 => 3,
             48...55 => 4,
             // Wasted space 56...61 is due entirely to Microsoft's
@@ -486,7 +485,7 @@ pub const Rune = packed struct(u32) {
             0xf4 => {
                 if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
                     // omit values without an equivalent codepoint
-                    if (b >= 0x8f) {
+                    if (b > 0x8f) {
                         return false;
                     } else {
                         return true;
@@ -566,8 +565,10 @@ pub const Rune = packed struct(u32) {
     /// Test whether the `Rune` encodes a UTF-8 scalar value.  This may
     /// only be called on conformant `Runes`, and this property will be
     /// asserted in safety build modes.  For `Rune`s which are possibly
-    /// non-conforming, use `isScalarValueAnyRune`.
+    /// non-conforming, use `isScalarValueAnyRune`.  Note that any Rune
+    /// which is conformant will not be overlong.
     pub fn isScalarValue(rune: Rune) bool {
+        // TODO probably want to assert overlongs at least
         // Reference: Table 3-7 of The Unicode Standard 15.0
         // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
         if (rune.a <= 0x7f) {
@@ -576,54 +577,26 @@ pub const Rune = packed struct(u32) {
         } else if (rune.b == 0) {
             return false;
         } else if (rune.a >= 0xc2 and rune.a <= 0xdf) {
-            // 2-byte sequence: C2..DF 80..BF
             assert(rune.b & 0xc0 == 0x80);
             return true;
-        } else if (rune.a == 0xe0) {
-            // 3-byte sequence: E0 A0..BF 80..BF
-            if (rune.b >= 0xa0 and rune.b <= 0xbf) {
-                assert(rune.c & 0xc0 == 0x80);
-                return true;
-            } else {
-                return false;
-            }
-        } else if (rune.a >= 0xe1 and rune.a <= 0xec) {
-            // 3-byte sequence: E1..EC 80..BF 80..BF
+        } else if (rune.a >= 0xe0 and rune.a <= 0xec) {
             assert(rune.b & 0xc0 == 0x80);
             assert(rune.c & 0xc0 == 0x80);
             return true;
         } else if (rune.a == 0xed) {
-            // 3-byte sequence: ED 80..9F 80..BF
+            // Avoid surrogates
             return (rune.b >= 0x80 and rune.b <= 0x9f) and (rune.c & 0xc0) == 0x80;
         } else if (rune.a >= 0xee and rune.a <= 0xef) {
-            // 3-byte sequence: EE..EF 80..BF 80..BF
-            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
-        } else if (rune.a == 0xf0) {
-            // 4-byte sequence: F0 90..BF 80..BF 80..BF
-            if (rune.b >= 0x90 and rune.b <= 0xbf) {
-                assert(rune.c & 0xc0 == 0x80);
-                assert(rune.d & 0xc0 == 0x80);
-                return true;
-            } else {
-                return false;
-            }
-        } else if (rune.a >= 0xf1 and rune.a <= 0xf3) {
-            // 4-byte sequence: F1..F3 80..BF 80..BF 80..BF
+            assert(rune.b & 0xc0 == 0x80);
+            assert(rune.c & 0xc0 == 0x80);
+            return true;
+        } else if (rune.a >= 0xf0 and rune.a <= 0xf4) {
             assert(rune.b & 0xc0 == 0x80);
             assert(rune.c & 0xc0 == 0x80);
             assert(rune.d & 0xc0 == 0x80);
             return true;
-        } else if (rune.a == 0xf4) {
-            // 4-byte sequence: F4 80..8F 80..BF 80..BF
-            if (rune.b >= 0x80 and rune.b <= 0x8f) {
-                assert(rune.c & 0xc0 == 0x80);
-                assert(rune.d & 0xc0 == 0x80);
-                return true;
-            } else {
-                return false;
-            }
-        } else {
-            return false;
+        } else { // conformant runes will not have over-high leads unless b == 0
+            unreachable;
         }
     }
 };
@@ -1025,13 +998,25 @@ test "Rune tests" {
     try expectEqual(strC[0], rC.a);
     try expectEqual(strC[1], rC.b);
     try expectEqual(strC[2], rC.c);
-    const rC2 = Rune.fromSlice(strC).?;
-    try expectEqualDeep(rC, rC2);
+    const rCclone = Rune.fromSlice(strC).?;
+    try expectEqualDeep(rC, rCclone);
     try expect(rC.equalToCodepoint('∅'));
     try expect(rC.isCodepoint());
     try expect(rC.isCodepointAnyRune());
     try expect(rC.isScalarValueAnyRune());
     try expect(rC.isScalarValue());
+    const rC2 = Rune.fromCodepoint('ࠐ') catch unreachable;
+    try expect(rC2.equalToCodepoint('ࠐ'));
+    try expect(rC2.isCodepoint());
+    try expect(rC2.isCodepointAnyRune());
+    try expect(rC2.isScalarValueAnyRune());
+    try expect(rC2.isScalarValue());
+    const rC3 = Rune.fromCodepoint('\u{efd0}') catch unreachable;
+    try expect(rC3.equalToCodepoint('\u{efd0}'));
+    try expect(rC3.isCodepoint());
+    try expect(rC3.isCodepointAnyRune());
+    try expect(rC3.isScalarValueAnyRune());
+    try expect(rC3.isScalarValue());
     // thinking emoji 🤔, U+1f914
     const rD = Rune.fromCodepoint(0x1f914) catch unreachable;
     try expectEqual(rD.toCodepoint(), rD.toCodepointAssumeValid());
@@ -1054,7 +1039,24 @@ test "Rune tests" {
     try expect(rD.isCodepointAnyRune());
     try expect(rD.isScalarValueAnyRune());
     try expect(rD.isScalarValue());
+    // Random high codepoint with useful lead byte
+    const rDh1 = Rune.fromCodepoint(0xa1350) catch unreachable;
+    try expect(rDh1.equalToCodepoint('\u{a1350}'));
+    try expect(rDh1.isCodepoint());
+    try expect(rDh1.isCodepointAnyRune());
+    try expect(rDh1.isScalarValueAnyRune());
+    try expect(rDh1.isScalarValue());
+    // Same but higher
+    const rDh2 = Rune.fromCodepoint(0x10ff00) catch unreachable;
+    try expect(rDh2.equalToCodepoint('\u{10ff00}'));
+    try expect(rDh2.isCodepoint());
+    try expect(rDh2.isCodepointAnyRune());
+    try expect(rDh2.isScalarValueAnyRune());
+    try expect(rDh2.isScalarValue());
+    // Too high
     try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
+    try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x111000));
+    try expectError(error.CodepointTooHigh, Rune.fromCodepoint(std.math.maxInt(u21)));
 }
 
 test "invalid Rune tests" {
@@ -1090,10 +1092,7 @@ test "invalid Rune tests" {
     const badB2 = Rune{ .a = 0xc3, .b = 0x81, .c = 0xff, .d = 0 };
     try expectEqual(false, badB2.isCodepointAnyRune());
     try expectEqual(false, badB2.isScalarValueAnyRune());
-    const badOverLong = Rune{ .a = 0xe0, .b = 0x80, .c = 0x90, .d = 0 };
-    try expectEqual(false, badOverLong.isCodepointAnyRune());
-    try expectEqual(false, badOverLong.isScalarValueAnyRune());
-    const badC = Rune{ .a = 0xe0, .b = 0x81, .c = 0xff, .d = 0 };
+    const badC = Rune{ .a = 0xe0, .b = 0x81, .c = 0x90, .d = 0 };
     try expectEqual(false, badC.isCodepointAnyRune());
     try expectEqual(false, badC.isScalarValueAnyRune());
     const badC2 = Rune{ .a = 0xe0, .b = 0x80, .c = 0x81, .d = 0xff };
@@ -1105,12 +1104,27 @@ test "invalid Rune tests" {
     const badC4 = Rune{ .a = 0xee, .b = 0xff, .c = 0, .d = 0xff };
     try expectEqual(false, badC4.isCodepointAnyRune());
     try expectEqual(false, badC4.isScalarValueAnyRune());
+    const badC5 = Rune{ .a = 0xe2, .b = 0xff, .c = 0, .d = 0xff };
+    try expectEqual(false, badC5.isCodepointAnyRune());
+    try expectEqual(false, badC5.isScalarValueAnyRune());
     const badD = Rune{ .a = 0xf0, .b = 0xff, .c = 0, .d = 0 };
     try expectEqual(false, badD.isCodepointAnyRune());
     try expectEqual(false, badD.isScalarValueAnyRune());
+    const badD2 = Rune{ .a = 0xf2, .b = 0xff, .c = 0, .d = 0 };
+    try expectEqual(false, badD2.isCodepointAnyRune());
+    try expectEqual(false, badD2.isScalarValueAnyRune());
     const badTooHigh = Rune{ .a = 0xff, .b = 0xff, .c = 0, .d = 0 };
     try expectEqual(false, badTooHigh.isCodepointAnyRune());
     try expectEqual(false, badTooHigh.isScalarValueAnyRune());
+    const badTooHigh2 = Rune{ .a = 0xf4, .b = 0x90, .c = 0xa0, .d = 0xa0 };
+    try expectEqual(false, badTooHigh2.isCodepointAnyRune());
+    try expectEqual(false, badTooHigh2.isScalarValueAnyRune());
+    const badOverLong1 = Rune{ .a = 0xe0, .b = 0x80, .c = 0x90, .d = 0 };
+    try expectEqual(false, badOverLong1.isCodepointAnyRune());
+    try expectEqual(false, badOverLong1.isScalarValueAnyRune());
+    const badOverLong2 = Rune{ .a = 0xf0, .b = 0x80, .c = 0x90, .d = 0x90 };
+    try expectEqual(false, badOverLong2.isCodepointAnyRune());
+    try expectEqual(false, badOverLong2.isScalarValueAnyRune());
 }
 
 test "Rune scalar tests" {
@@ -1119,4 +1133,7 @@ test "Rune scalar tests" {
     try expect(rSurrogate.isCodepointAnyRune());
     try expectEqual(false, rSurrogate.isScalarValue());
     try expectEqual(false, rSurrogate.isScalarValueAnyRune());
+    const rMalformed = Rune{ .a = 0xff, .b = 0, .c = 0, .d = 0 };
+    try expectEqual(false, rMalformed.isScalarValue());
+    try expectEqual(false, rMalformed.isScalarValueAnyRune());
 }
