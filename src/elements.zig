@@ -27,6 +27,11 @@ pub const CodeUnit = packed struct(u8) {
         return @as(u64, 1) << self.body;
     }
 
+    // TODO consider an nMultiBytesFast, for the cases where we
+    // know that invalid lead bytes are never present (such as in set)
+    // operations, where we may assume that (and will assert that) the
+    // LEAD mask contains no such bytes.
+
     /// Number of bytes in known multi-byte rune.
     ///
     /// Caller guarantees that the CodeUnit is a lead byte
@@ -36,7 +41,8 @@ pub const CodeUnit = packed struct(u8) {
     pub inline fn nMultiBytes(self: *const CodeUnit) ?u8 {
         assert(self.kind == .lead);
         return switch (self.body) {
-            0...31 => 2,
+            0, 1 => null,
+            2...31 => 2,
             32...47 => 3,
             48...55 => 4,
             // Wasted space 56...61 is due entirely to Microsoft's
@@ -141,8 +147,8 @@ pub const Rune = packed struct(u32) {
                 },
                 .follow => unreachable, // nBytes is null for this case
                 .lead => {
-                    switch (nB) {
-                        2 => {
+                    switch (slice[0]) {
+                        0xc2...0xdf => {
                             if (codeunit(slice[1]).kind == .follow)
                                 return Rune{
                                     .a = slice[0],
@@ -153,28 +159,68 @@ pub const Rune = packed struct(u32) {
                             else
                                 return null;
                         },
-                        3 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow)
-                            return Rune{
-                                .a = slice[0],
-                                .b = slice[1],
-                                .c = slice[2],
-                                .d = 0,
-                            }
-                        else
-                            return null,
-                        4 => if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
-                            // omit values without an equivalent codepoint
-                            if (slice[0] == 0xf4 and slice[1] >= 0x8f) {
+                        0xe0 => {
+                            // Omit overlong encoding.
+                            if (slice[1] >= 0xa0 and slice[1] <= 0xbf and codeunit(slice[2]).kind == .follow)
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = slice[2],
+                                    .d = 0,
+                                }
+                            else
                                 return null;
-                            }
-                            return Rune{
-                                .a = slice[0],
-                                .b = slice[1],
-                                .c = slice[2],
-                                .d = slice[3],
-                            };
-                        } else return null,
-                        else => unreachable,
+                        },
+                        0xe1...0xef => {
+                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow)
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = slice[2],
+                                    .d = 0,
+                                }
+                            else
+                                return null;
+                        },
+                        0xf0 => {
+                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                                // Omit overlong encoding.
+                                if (slice[1] < 0x90) {
+                                    return null;
+                                }
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = slice[2],
+                                    .d = slice[3],
+                                };
+                            } else return null;
+                        },
+                        0xf1...0xf3 => {
+                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = slice[2],
+                                    .d = slice[3],
+                                };
+                            } else return null;
+                        },
+                        0xf4 => {
+                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                                // omit values without an equivalent codepoint
+                                if (slice[1] >= 0x8f) {
+                                    return null;
+                                }
+                                return Rune{
+                                    .a = slice[0],
+                                    .b = slice[1],
+                                    .c = slice[2],
+                                    .d = slice[3],
+                                };
+                            } else return null;
+                        },
+                        else => return null,
                     }
                 },
             }
@@ -388,47 +434,68 @@ pub const Rune = packed struct(u32) {
     /// Test if the `Rune` encodes a valid generalized UTF-8 codepoint.
     /// This may be called on a non-conforming `Rune`.
     pub fn isCodepointAnyRune(rune: Rune) bool {
-        if (rune.a > 0x7f and rune.b == 0) return false;
-        const nBytes = codeunit(rune.a).nBytes();
-        if (nBytes) |nB| {
-            switch (nB) {
-                1 => {
-                    if (rune.b == 0 and rune.c == 0 and rune.d == 0) {
-                        return true;
-                    } else {
-                        return false;
-                    }
-                },
-                2 => {
-                    if (codeunit(rune.b).kind == .follow and rune.c == 0 and rune.d == 0) {
-                        return true;
-                    } else {
-                        return false;
-                    }
-                },
-                3 => {
-                    const b_follow = codeunit(rune.b).kind == .follow;
-                    const c_follow = codeunit(rune.c).kind == .follow;
-                    if (b_follow and c_follow and rune.d == 0) {
-                        return true;
-                    } else {
-                        return false;
-                    }
-                },
-                4 => {
-                    const b_follow = codeunit(rune.b).kind == .follow;
-                    const c_follow = codeunit(rune.c).kind == .follow;
-                    const d_follow = codeunit(rune.d).kind == .follow;
-                    if (b_follow and c_follow and d_follow) {
-                        return true;
-                    } else {
-                        return false;
-                    }
-                },
-                else => unreachable,
+        if (rune.a <= 0x7f) {
+            if (rune.b != 0 or rune.c != 0 or rune.d != 0) {
+                return false;
+            } else {
+                return true;
             }
-        } else {
-            return false;
+        }
+        const b = rune.b;
+        const c = rune.c;
+        const d = rune.d;
+        switch (rune.a) {
+            0xc2...0xdf => {
+                if (codeunit(b).kind == .follow and c == 0 and d == 0)
+                    return true
+                else
+                    return false;
+            },
+            0xe0 => {
+                // Omit overlong encoding.
+                if (b >= 0xa0 and b <= 0xbf and codeunit(c).kind == .follow and d == 0)
+                    return true
+                else
+                    return false;
+            },
+            0xe1...0xef => {
+                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and d == 0)
+                    return true
+                else
+                    return false;
+            },
+            0xf0 => {
+                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
+                    // Omit overlong encoding.
+                    if (b < 0x90) {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                } else {
+                    return false;
+                }
+            },
+            0xf1...0xf3 => {
+                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
+                    return true;
+                } else {
+                    return false;
+                }
+            },
+            0xf4 => {
+                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
+                    // omit values without an equivalent codepoint
+                    if (b >= 0x8f) {
+                        return false;
+                    } else {
+                        return true;
+                    }
+                } else {
+                    return false;
+                }
+            },
+            else => return false,
         }
     }
 
@@ -1014,16 +1081,22 @@ test "invalid Rune tests" {
     const badA2 = Rune{ .a = 0xe0, .b = 0, .c = 0, .d = 0 };
     try expectEqual(false, badA2.isCodepointAnyRune());
     try expectEqual(false, badA2.isScalarValueAnyRune());
+    // This is conforming malformed data TODO may change storage to d, which would
+    // fail this test!
+    try expectEqual(false, badA2.isScalarValue());
     const badB = Rune{ .a = 0xc3, .b = 0xff, .c = 0, .d = 0 };
     try expectEqual(false, badB.isCodepointAnyRune());
     try expectEqual(false, badB.isScalarValueAnyRune());
     const badB2 = Rune{ .a = 0xc3, .b = 0x81, .c = 0xff, .d = 0 };
     try expectEqual(false, badB2.isCodepointAnyRune());
     try expectEqual(false, badB2.isScalarValueAnyRune());
+    const badOverLong = Rune{ .a = 0xe0, .b = 0x80, .c = 0x90, .d = 0 };
+    try expectEqual(false, badOverLong.isCodepointAnyRune());
+    try expectEqual(false, badOverLong.isScalarValueAnyRune());
     const badC = Rune{ .a = 0xe0, .b = 0x81, .c = 0xff, .d = 0 };
     try expectEqual(false, badC.isCodepointAnyRune());
     try expectEqual(false, badC.isScalarValueAnyRune());
-    const badC2 = Rune{ .a = 0xe1, .b = 0x80, .c = 0x81, .d = 0xff };
+    const badC2 = Rune{ .a = 0xe0, .b = 0x80, .c = 0x81, .d = 0xff };
     try expectEqual(false, badC2.isCodepointAnyRune());
     try expectEqual(false, badC2.isScalarValueAnyRune());
     const badC3 = Rune{ .a = 0xeD, .b = 0xff, .c = 0, .d = 0xff };
@@ -1038,4 +1111,12 @@ test "invalid Rune tests" {
     const badTooHigh = Rune{ .a = 0xff, .b = 0xff, .c = 0, .d = 0 };
     try expectEqual(false, badTooHigh.isCodepointAnyRune());
     try expectEqual(false, badTooHigh.isScalarValueAnyRune());
+}
+
+test "Rune scalar tests" {
+    const rSurrogate = try Rune.fromCodepoint(0xd850);
+    try expect(rSurrogate.isCodepoint());
+    try expect(rSurrogate.isCodepointAnyRune());
+    try expectEqual(false, rSurrogate.isScalarValue());
+    try expectEqual(false, rSurrogate.isScalarValueAnyRune());
 }
