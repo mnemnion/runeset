@@ -378,6 +378,7 @@ pub const Rune = packed struct(u32) {
                         assert(codeunit(rune.c).kind == .follow);
                         assert(codeunit(rune.d).kind == .follow);
                     },
+                    else => unreachable,
                 }
             } else unreachable;
         }
@@ -424,6 +425,7 @@ pub const Rune = packed struct(u32) {
                         return false;
                     }
                 },
+                else => unreachable,
             }
         } else {
             return false;
@@ -438,24 +440,48 @@ pub const Rune = packed struct(u32) {
         // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
         if (rune.a <= 0x7f) {
             // 1-byte sequence: 00..7F
-            return true;
+            if (rune.b == 0 and rune.c == 0 and rune.d == 0) {
+                return true;
+            } else {
+                return false;
+            }
         } else if (rune.b == 0) {
             return false;
         } else if (rune.a >= 0xc2 and rune.a <= 0xdf) {
             // 2-byte sequence: C2..DF 80..BF
-            return (rune.b & 0xc0) == 0x80;
+            if (rune.c == 0 and rune.d == 0) {
+                return (rune.b & 0xc0) == 0x80;
+            } else {
+                return false;
+            }
         } else if (rune.a == 0xe0) {
             // 3-byte sequence: E0 A0..BF 80..BF
-            return (rune.b >= 0xa0 and rune.b <= 0xbf) and (rune.c & 0xc0) == 0x80;
+            if (rune.d == 0) {
+                return (rune.b >= 0xa0 and rune.b <= 0xbf) and (rune.c & 0xc0) == 0x80;
+            } else {
+                return false;
+            }
         } else if (rune.a >= 0xe1 and rune.a <= 0xec) {
             // 3-byte sequence: E1..EC 80..BF 80..BF
-            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+            if (rune.d == 0) {
+                return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+            } else {
+                return false;
+            }
         } else if (rune.a == 0xed) {
             // 3-byte sequence: ED 80..9F 80..BF
-            return (rune.b >= 0x80 and rune.b <= 0x9f) and (rune.c & 0xc0) == 0x80;
+            if (rune.d == 0) {
+                return (rune.b >= 0x80 and rune.b <= 0x9f) and (rune.c & 0xc0) == 0x80;
+            } else {
+                return false;
+            }
         } else if (rune.a >= 0xee and rune.a <= 0xef) {
             // 3-byte sequence: EE..EF 80..BF 80..BF
-            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+            if (rune.d == 0) {
+                return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80;
+            } else {
+                return false;
+            }
         } else if (rune.a == 0xf0) {
             // 4-byte sequence: F0 90..BF 80..BF 80..BF
             return (rune.b >= 0x90 and rune.b <= 0xbf) and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
@@ -891,7 +917,7 @@ test "invalid states" {
     try expectEqual(null, zeroMask.lowerThan(codeunit('a')));
 }
 
-test "rune tests" {
+test "Rune tests" {
     const rA = Rune.fromCodepoint(0x41) catch unreachable;
     try expectEqual(0x41, rA.a);
     try expect(rA.b == 0 and rA.c == 0 and rA.d == 0);
@@ -901,6 +927,10 @@ test "rune tests" {
     const rA2 = Rune.fromSlice(strA).?;
     try expectEqualDeep(rA, rA2);
     try expect(rA.equalToCodepoint('A'));
+    try expect(rA.isCodepoint());
+    try expect(rA.isCodepointAnyRune());
+    try expect(rA.isScalarValueAnyRune());
+    try expect(rA.isScalarValue());
     // greek Ω, U+3a9
     const rB = Rune.fromCodepoint(0x3a9) catch unreachable;
     try expectEqual(0xce, rB.a);
@@ -913,6 +943,10 @@ test "rune tests" {
     const rB2 = Rune.fromSlice(strB).?;
     try expectEqualDeep(rB, rB2);
     try expect(rB.equalToCodepoint('Ω'));
+    try expect(rB.isCodepoint());
+    try expect(rB.isCodepointAnyRune());
+    try expect(rB.isScalarValueAnyRune());
+    try expect(rB.isScalarValue());
     // empty set ∅, U+2205
     const rC = Rune.fromCodepoint(0x2205) catch unreachable;
     try expectEqual(0xe2, rC.a);
@@ -927,8 +961,13 @@ test "rune tests" {
     const rC2 = Rune.fromSlice(strC).?;
     try expectEqualDeep(rC, rC2);
     try expect(rC.equalToCodepoint('∅'));
+    try expect(rC.isCodepoint());
+    try expect(rC.isCodepointAnyRune());
+    try expect(rC.isScalarValueAnyRune());
+    try expect(rC.isScalarValue());
     // thinking emoji 🤔, U+1f914
     const rD = Rune.fromCodepoint(0x1f914) catch unreachable;
+    try expectEqual(rD.toCodepoint(), rD.toCodepointAssumeValid());
     try expectEqual(0xf0, rD.a);
     try expectEqual(0x9f, rD.b);
     try expectEqual(0xa4, rD.c);
@@ -944,6 +983,10 @@ test "rune tests" {
     const rDs = rD.toByteArray();
     try std.testing.expectEqualStrings(strD, &rDs);
     try expect(rD.equalToCodepoint('🤔'));
+    try expect(rD.isCodepoint());
+    try expect(rD.isCodepointAnyRune());
+    try expect(rD.isScalarValueAnyRune());
+    try expect(rD.isScalarValue());
     try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
 }
 
@@ -954,6 +997,8 @@ test "invalid Rune tests" {
     try expectEqual(null, Rune.fromSlice("\xff\xff\xff"));
     try expectEqual(null, Rune.fromSlice("\xe2✓"));
     try expectEqual(null, Rune.fromSlice("\xf0\x9f\x98q"));
+    // too high
+    try expectEqual(null, Rune.fromSlice("\xf4\x8f\x82\x83"));
     try expectError(
         error.InvalidUnicode,
         (Rune{
@@ -963,4 +1008,34 @@ test "invalid Rune tests" {
             .d = 0,
         }).toCodepoint(),
     );
+    const badA = Rune{ .a = 0x32, .b = 0xff, .c = 0, .d = 0 };
+    try expectEqual(false, badA.isCodepointAnyRune());
+    try expectEqual(false, badA.isScalarValueAnyRune());
+    const badA2 = Rune{ .a = 0xe0, .b = 0, .c = 0, .d = 0 };
+    try expectEqual(false, badA2.isCodepointAnyRune());
+    try expectEqual(false, badA2.isScalarValueAnyRune());
+    const badB = Rune{ .a = 0xc3, .b = 0xff, .c = 0, .d = 0 };
+    try expectEqual(false, badB.isCodepointAnyRune());
+    try expectEqual(false, badB.isScalarValueAnyRune());
+    const badB2 = Rune{ .a = 0xc3, .b = 0x81, .c = 0xff, .d = 0 };
+    try expectEqual(false, badB2.isCodepointAnyRune());
+    try expectEqual(false, badB2.isScalarValueAnyRune());
+    const badC = Rune{ .a = 0xe0, .b = 0x81, .c = 0xff, .d = 0 };
+    try expectEqual(false, badC.isCodepointAnyRune());
+    try expectEqual(false, badC.isScalarValueAnyRune());
+    const badC2 = Rune{ .a = 0xe1, .b = 0x80, .c = 0x81, .d = 0xff };
+    try expectEqual(false, badC2.isCodepointAnyRune());
+    try expectEqual(false, badC2.isScalarValueAnyRune());
+    const badC3 = Rune{ .a = 0xeD, .b = 0xff, .c = 0, .d = 0xff };
+    try expectEqual(false, badC3.isCodepointAnyRune());
+    try expectEqual(false, badC3.isScalarValueAnyRune());
+    const badC4 = Rune{ .a = 0xee, .b = 0xff, .c = 0, .d = 0xff };
+    try expectEqual(false, badC4.isCodepointAnyRune());
+    try expectEqual(false, badC4.isScalarValueAnyRune());
+    const badD = Rune{ .a = 0xf0, .b = 0xff, .c = 0, .d = 0 };
+    try expectEqual(false, badD.isCodepointAnyRune());
+    try expectEqual(false, badD.isScalarValueAnyRune());
+    const badTooHigh = Rune{ .a = 0xff, .b = 0xff, .c = 0, .d = 0 };
+    try expectEqual(false, badTooHigh.isCodepointAnyRune());
+    try expectEqual(false, badTooHigh.isScalarValueAnyRune());
 }
