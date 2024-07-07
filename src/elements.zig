@@ -208,7 +208,7 @@ pub const Rune = packed struct(u32) {
                         0xf4 => {
                             if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
                                 // omit values without an equivalent codepoint
-                                if (slice[1] >= 0x8f) {
+                                if (slice[1] > 0x8f) {
                                     return null;
                                 }
                                 return Rune{
@@ -218,8 +218,8 @@ pub const Rune = packed struct(u32) {
                                     .d = slice[3],
                                 };
                             } else return null;
-                        },
-                        else => return null,
+                        }, // nBytes handles two-byte overlongs and overhigh
+                        else => unreachable,
                     }
                 },
             }
@@ -854,25 +854,6 @@ test codeunit {
     }
 }
 
-// test "low mask" {
-//     const c0 = codeunit('\x00');
-//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c0.body, c0.lowMask() });
-//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c0.hiMask()});
-//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c0.inMask()});
-//     const c1 = codeunit('\x01');
-//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c1.body, c1.lowMask() });
-//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c1.hiMask()});
-//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c1.inMask()});
-//     const c27 = codeunit('\x1b');
-//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c27.body, c27.lowMask() });
-//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c27.hiMask()});
-//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c27.inMask()});
-//     const c63 = codeunit('?');
-//     std.debug.print("body: {d}\n   lowMask: 0b{b:0>64}\n", .{ c63.body, c63.lowMask() });
-//     std.debug.print("    hiMask: 0b{b:0>64}\n", .{c63.hiMask()});
-//     std.debug.print("    inMask: 0b{b:0>64}\n", .{c63.inMask()});
-// }
-
 test "mask tests" {
     var mask = Mask.toMask(0);
     const B = codeunit('B');
@@ -1011,12 +992,16 @@ test "Rune tests" {
     try expect(rC2.isCodepointAnyRune());
     try expect(rC2.isScalarValueAnyRune());
     try expect(rC2.isScalarValue());
+    const rC2a = rC2.toByteArray();
+    try expectEqualDeep(rC2, Rune.fromSlice(&rC2a));
     const rC3 = Rune.fromCodepoint('\u{efd0}') catch unreachable;
     try expect(rC3.equalToCodepoint('\u{efd0}'));
     try expect(rC3.isCodepoint());
     try expect(rC3.isCodepointAnyRune());
     try expect(rC3.isScalarValueAnyRune());
     try expect(rC3.isScalarValue());
+    const rC3a = rC3.toByteArray();
+    try expectEqualDeep(rC3, Rune.fromSlice(&rC3a));
     // thinking emoji 🤔, U+1f914
     const rD = Rune.fromCodepoint(0x1f914) catch unreachable;
     try expectEqual(rD.toCodepoint(), rD.toCodepointAssumeValid());
@@ -1046,8 +1031,12 @@ test "Rune tests" {
     try expect(rDh1.isCodepointAnyRune());
     try expect(rDh1.isScalarValueAnyRune());
     try expect(rDh1.isScalarValue());
+    const rDh1a = rDh1.toByteArray();
+    try expectEqualDeep(rDh1, Rune.fromSlice(&rDh1a));
     // Same but higher
     const rDh2 = Rune.fromCodepoint(0x10ff00) catch unreachable;
+    const rDh2a = rDh2.toByteArray();
+    try expectEqualDeep(rDh2, Rune.fromSlice(&rDh2a));
     try expect(rDh2.equalToCodepoint('\u{10ff00}'));
     try expect(rDh2.isCodepoint());
     try expect(rDh2.isCodepointAnyRune());
@@ -1066,8 +1055,13 @@ test "invalid Rune tests" {
     try expectEqual(null, Rune.fromSlice("\xff\xff\xff"));
     try expectEqual(null, Rune.fromSlice("\xe2✓"));
     try expectEqual(null, Rune.fromSlice("\xf0\x9f\x98q"));
+    try expectEqual(null, Rune.fromSlice("\xf1\x9f\x98q"));
+    // overlong
+    try expectEqual(null, Rune.fromSlice("\xf0\x80\x98\xa0"));
+    try expectEqual(null, Rune.fromSlice("\xe0\x80\x98"));
     // too high
-    try expectEqual(null, Rune.fromSlice("\xf4\x8f\x82\x83"));
+    try expectEqual(null, Rune.fromSlice("\xf4\x90\x82\x83"));
+    try expectEqual(null, Rune.fromSlice("\xfa\x90\x82\x83"));
     try expectError(
         error.InvalidUnicode,
         (Rune{
