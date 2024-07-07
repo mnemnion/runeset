@@ -11,22 +11,9 @@
 //! Additionally, these may be combined using the basic set operations:
 //! union, difference, and intersection, as well as tested for equality.
 //!
-
-const std = @import("std");
-const builtin = @import("builtin");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const dbgPrint = std.debug.print;
-
-const elements = @import("elements.zig");
-
-const Mask = elements.Mask;
-const toMask = Mask.toMask;
-/// A wrapper for a single byte of utf8
-pub const CodeUnit = elements.CodeUnit;
-/// codeunit(:u8) creates a CodeUnit
-pub const codeunit = elements.codeunit;
-pub const Rune = elements.Rune;
+//! Also provided are the CodeUnit, a convenient packed-struct form of
+//! `u8` for representing UTF-8 code units, and Rune, a faster and more
+//! flexible way to work with encoded codepoints.
 
 /// Error indicating that a string for construction a RuneSet contains
 /// invalid Unicode.
@@ -40,7 +27,7 @@ const T4_OFF = 3;
 
 // Important values for correct use of RuneSets
 // NOTE: These are offset/length values, e.g. two-byte range is 0..32,
-//       meaning the highest legal body value is 31.
+// meaning the highest legal body value is 31.
 const TWO_MAX = 32; // maximum cu.body for two byte lead
 const THREE_MAX = 48; // maximum for three byte lead
 const FOUR_MAX = 56; // maximum for four-byte lead
@@ -53,7 +40,7 @@ const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 // 32..56
 const MASK_IN_THREE: u64 = MASK_OUT_TWO & MASK_OUT_FOUR;
 
-/// RuneSet: a fast character set for UTF-8.
+/// RuneSet: fast character sets for UTF-8.
 ///
 /// Create with:
 ///
@@ -232,7 +219,7 @@ pub const RuneSet = struct {
 
     // No need for noTwoBytes because LEAD is present
     // in all cases, so testing a lead byte is always
-    // safe
+    // safe.
 
     /// Test whether the `RuneSet` has any three- or four-byte
     /// codepoints.
@@ -515,7 +502,10 @@ pub const RuneSet = struct {
     /// A logging equality test, for debugging purposes.
     pub fn expectEqualTo(self: RuneSet, other: RuneSet) bool {
         if (self.body.len != other.body.len) {
-            std.debug.print("L.len {d} != R.len {d}\n", .{ self.body.len, other.body.len });
+            std.debug.print("L.len {d} != R.len {d}\n", .{
+                self.body.len,
+                other.body.len,
+            });
             return false;
         }
         const LT3 = self.t3start();
@@ -766,12 +756,12 @@ pub const RuneSet = struct {
         const NT3 = try allocator.alloc(u64, popCountSlice(NT2[TWO_MAX..]));
         defer allocator.free(NT3);
         {
-            // Track ownership of T2 bitmasks
+            // Track ownership of T2 bitmasks.
             const LT1m = toMask(Lbod[LEAD]);
             const RT1m = toMask(Rbod[LEAD]);
             const bothT1m = toMask(Lbod[LEAD] & Rbod[LEAD]);
             assert(bothT1m.m == LT1m.intersection(RT1m).m);
-            // Track T3 offsets forward
+            // Track T3 offsets forward.
             var NT3i: usize = 0;
             var LT3i = L.t3start();
             var RT3i = R.t3start();
@@ -784,7 +774,7 @@ pub const RuneSet = struct {
             assert(unionT2iter.mask.m == (Lbod[LEAD] & MASK_OUT_TWO) | (Rbod[LEAD] & MASK_OUT_TWO));
             while (unionT2iter.next()) |e2| {
                 if (bothT1m.isElem(e2)) {
-                    // Reverse-iterate the mask and test membership
+                    // Reverse-iterate the mask and test membership.
                     const LT2m = toMask(Lbod[LT2i]);
                     const RT2m = toMask(Rbod[RT2i]);
                     const bothT2m = toMask(Lbod[LT2i] & Rbod[RT2i]);
@@ -847,10 +837,10 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // T4 setup
-        // Popcount of four-byte range of NT3
+        // Popcount of four-byte range of NT3.
         const NT2b4len = popCountSlice(NT2[THREE_MAX..]);
         const NT4len = popCountSlice(NT3[0..NT2b4len]);
-        // Is word width of NT4
+        // Is word width of NT4.
         const NT4 = try allocator.alloc(u64, NT4len);
         defer allocator.free(NT4);
         // Tier 4
@@ -863,15 +853,15 @@ pub const RuneSet = struct {
             const LT1d_m = toMask(Lbod[LEAD] & MASK_IN_FOUR);
             const RT1d_m = toMask(Rbod[LEAD] & MASK_IN_FOUR);
             assert(NT1d_m.m == LT1d_m.setunion(RT1d_m).m);
-            // T2 offsets are tracked backward
+            // T2 offsets are tracked backward.
             var LT2i = L.t2final();
             var RT2i = R.t2final();
-            // T3s are tracked forward: highest lead byte to lowest
+            // T3s are tracked forward: highest lead byte to lowest.
             var LT3i = L.t3start();
             var RT3i = R.t3start();
-            // Debug tracking NT3, should be elided in release
+            // Debug tracking NT3, should be elided in release.
             var NT3i: usize = 0;
-            // T4 offsets forward: also highest lead to lowest
+            // T4 offsets forward: also highest lead to lowest.
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
@@ -885,7 +875,7 @@ pub const RuneSet = struct {
                 while (NT2iter.next()) |e2| {
                     assert(NT2[e2] != 0);
                     if (LT1d_m.isElem(e2) and RT1d_m.isElem(e2)) {
-                        // Shared T2 region
+                        // Shared T2 region.
                         const LT2m = toMask(Lbod[LT2i]);
                         const RT2m = toMask(Rbod[RT2i]);
                         assert(NT2[e2] == Rbod[RT2i] | Lbod[LT2i]);
@@ -897,7 +887,7 @@ pub const RuneSet = struct {
                         var unionT2iter = unionT2m.iterElemBack();
                         while (unionT2iter.next()) |e3| {
                             if (bothT2m.isElem(e3)) {
-                                // back iterate both T3 masks, forward
+                                // Back iterate both T3 masks, forward.
                                 const LT3m = toMask(Lbod[LT3i]);
                                 const RT3m = toMask(Rbod[RT3i]);
                                 const bothT3m = LT3m.intersection(RT3m);
@@ -952,10 +942,10 @@ pub const RuneSet = struct {
                                     NT4i += 1;
                                     RT4i += 1;
                                 }
-                            } // End T3 iteration
-                        } // End T2 iteration
+                            } // end T3 iteration
+                        } // end T2 iteration
                     } else if (LT1d_m.isElem(e2)) {
-                        // popcount T2 mask
+                        // Popcount T2 mask.
                         assert(NT2[e2] == Lbod[LT2i]);
                         const T3count = @popCount(Lbod[LT2i]);
                         LT2i -= 1;
@@ -996,7 +986,7 @@ pub const RuneSet = struct {
                         }
                     }
                 }
-                // postconditions
+                // Postconditions:
                 assert(NT4i == NT4.len);
                 assert(LT2i == L.t2_4b_start() - 1);
                 assert(RT2i == R.t2_4b_start() - 1);
@@ -1027,7 +1017,7 @@ pub const RuneSet = struct {
         const Rbod = R.body;
         header[LOW] = Lbod[LOW] & ~Rbod[LOW];
         header[HI] = Lbod[HI] & ~Rbod[HI];
-        // We always assign this to header[LEAD] before returning
+        // We always assign this to header[LEAD] before returning.
         var LLeadMask = toMask(Lbod[LEAD]);
         header[T4_OFF] = 0;
         // ASCII check:
@@ -1041,25 +1031,24 @@ pub const RuneSet = struct {
         // We blow up LT2:
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
         L.spreadT2(&NT2);
-        { // Take a union of LEADS
+        { // Take a union of LEADS.
             const unionLead = toMask(Rbod[LEAD] | Lbod[LEAD]);
             const L1m = toMask(Lbod[LEAD]);
             const R1m = toMask(Rbod[LEAD]);
-            // Iterate and diff
+            // Iterate and diff.
             var RT2i = R.t2start();
             var T2iter = unionLead.iterElements();
             while (T2iter.next()) |e| {
                 if (e >= TWO_MAX) break;
-                // assert(NT2[e] != 0);
                 if (R1m.isElem(e)) {
                     NT2[e] &= ~Rbod[RT2i];
                     RT2i += 1;
-                    // If this clears the mask, remove the LEAD bit
+                    // If this clears the mask, remove the LEAD bit.
                     if (NT2[e] == 0 and L1m.isElem(e))
                         LLeadMask.remove(codeunit(e));
                 }
             }
-        } // Only L matters here: can't remove what you don't have
+        } // Only L matters here: can't remove what you don't have.
         if (L.noThreeBytes()) {
             header[LEAD] = LLeadMask.m;
             const T2c = compactSlice(&NT2);
@@ -1083,10 +1072,10 @@ pub const RuneSet = struct {
             // Track ownership of T2 bits on each side:
             const LT2m = toMask(Lbod[LEAD]);
             const RT2m = toMask(Rbod[LEAD]);
-            // Track progress forward through T3 of both sides
-            var NT3i: usize = 0; // we've copied over all of LT3 to NT3.
-            var RT3i = R.t3start(); // We know there are three-byte seqs in R
-            // c-byte region of NT2 is all from L2, but RT2 offset needs tracking
+            // Track progress forward through T3 of both sides.
+            var NT3i: usize = 0; // We've copied over all of LT3 to NT3.
+            var RT3i = R.t3start(); // We know there are three-byte seqs in R.
+            // c-byte region of NT2 is all from L2, but RT2 offset needs tracking:
             var RT2i = R.t3start() - 1;
             // We go *back* through the c-byte region of NT2, and *forward*
             // through both T3s. To track the latter, we iterate NT2 using
@@ -1098,7 +1087,7 @@ pub const RuneSet = struct {
             };
             while (unionLeadIter.next()) |e2| {
                 if (e2 >= THREE_MAX) {
-                    // d byte; Fast-forward all T3 for each side
+                    // d byte, fast-forward all T3 for each side.
                     if (LT2m.isElem(e2)) {
                         assert(NT2[e2] != 0);
                         NT3i += @popCount(NT2[e2]);
@@ -1110,36 +1099,37 @@ pub const RuneSet = struct {
                     }
                     continue;
                 }
-                // In c region of T2s.  T3 indices are past d byte region
+                // In c region of T2s.  T3 indices are past d byte region.
                 const inLT2 = LT2m.isElem(e2);
                 if (!inLT2) {
-                    // must be in R, we skip
+                    // Must be in R, we skip.
                     assert(RT2m.isElem(e2));
                     assert(Rbod[RT2i] != 0);
+                    // While keeping our indices accurate:
                     RT3i += @popCount(Rbod[RT2i]);
                     RT2i -= 1;
                     continue;
                 }
                 const inRT2 = RT2m.isElem(e2);
                 if (inLT2 and inRT2) {
-                    // Find T3 intersections and take difference
+                    // Find T3 intersections and take difference.
                     assert(NT2[e2] != 0);
                     const eLT2m = toMask(NT2[e2]);
                     assert(Rbod[RT2i] != 0);
                     const eRT2m = toMask(Rbod[RT2i]);
-                    // We're done with RT2i, decrement
+                    // We're done with RT2i, decrement.
                     RT2i -= 1;
-                    // iterate the union of this T2 word backward
+                    // Tterate the union of this T2 word backward.
                     var unionT2iter = toMask(eLT2m.m | eRT2m.m).iterElemBack();
                     while (unionT2iter.next()) |e3| {
                         if (eLT2m.isElem(e3) and eRT2m.isElem(e3)) {
                             NT3[NT3i] &= ~Rbod[RT3i];
-                            // Check for T3 null and mask out T2 bit if so
+                            // Check for T3 null and mask out T2 bit if so.
                             if (NT3[NT3i] == 0) {
                                 var eNT2 = toMask(NT2[e2]);
                                 eNT2.remove(codeunit(e3));
                                 NT2[e2] = eNT2.m;
-                                // We check if NT2[e2] is clear after iteration
+                                // We check if NT2[e2] is clear after iteration.
                             }
                             NT3i += 1;
                             RT3i += 1;
@@ -1150,19 +1140,19 @@ pub const RuneSet = struct {
                             NT3i += 1;
                         }
                     }
-                    // Check for emptied NT2 mask
+                    // Check for emptied NT2 mask.
                     if (NT2[e2] == 0) {
                         LLeadMask.remove(codeunit(e2));
                     }
-                } else { // Must be L2, advance NT3i
+                } else { // Must be L2, advance NT3i.
                     assert(inLT2);
                     NT3i += @popCount(NT2[e2]);
                 }
             }
-        } else { // else R is only two byte or less, no action needed
+        } else { // Else R is only two byte or less, no action needed.
             assert(R.t3slice() == null);
         }
-        // Once again, R 4-byte is irrelevant if L has none
+        // Once again, R 4-byte is irrelevant if L has none.
         if (L.noFourBytes()) {
             header[LEAD] = LLeadMask.m;
             const T2c = compactSlice(&NT2);
@@ -1175,7 +1165,7 @@ pub const RuneSet = struct {
             @memcpy(Nbod[T2end..setLen], T3c);
             return RuneSet{ .body = Nbod };
         } else if (R.noFourBytes()) {
-            // We can just copy LT4 and return
+            // We can just copy LT4 and return.
             header[LEAD] = LLeadMask.m;
             const T2c = compactSlice(&NT2);
             const T2end = 4 + T2c.len;
@@ -1183,7 +1173,7 @@ pub const RuneSet = struct {
             const T3end = T2end + T3c.len;
             // Which is the T4 offset:
             header[T4_OFF] = T3end;
-            const T4 = L.t4slice().?; // Checked in prior if statement
+            const T4 = L.t4slice().?; // Checked in prior if statement.
             const setLen = T3end + T4.len;
             const Nbod = try allocator.alloc(u64, setLen);
             @memcpy(Nbod[0..4], &header);
@@ -1193,7 +1183,7 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // Tier 4.
-        const LT4 = L.t4slice().?; // checked above
+        const LT4 = L.t4slice().?; // Checked above.
         const NT4 = try allocator.alloc(u64, LT4.len);
         defer allocator.free(NT4);
         @memcpy(NT4, LT4);
@@ -1202,16 +1192,16 @@ pub const RuneSet = struct {
         // Track ownership of T2 bits on each side:
         const LT1m = toMask(Lbod[LEAD]);
         const RT1m = toMask(Rbod[LEAD]);
-        // Track progress forward through T3
-        // The d region of NT3 is still identical to LT3
+        // Track progress forward through T3,
+        // the d region of NT3 is still identical to LT3.
         var NT3i: usize = 0;
         var RT3i = R.t3start();
-        // Similarly, d region of NT2 is still identical to LT2
+        // Similarly, d region of NT2 is still identical to LT2.
         var RT2i = R.t2final();
-        // track T4 progress forward
+        // Track T4 progress forward.
         var NT4i: usize = 0;
         var RT4i = Rbod[T4_OFF];
-        // Backward iterate T2, d region only
+        // Backward iterate T2, d region only.
         var unionLeadIter = blk: {
             const LT1d = Lbod[LEAD] & MASK_IN_FOUR;
             const RT1d = Rbod[LEAD] & MASK_IN_FOUR;
@@ -1220,11 +1210,11 @@ pub const RuneSet = struct {
         t2iter: while (unionLeadIter.next()) |e2| {
             const inLT2 = LT1m.isElem(e2);
             if (!inLT2) {
-                // must be in R, we skip
+                // Must be in R, we skip.
                 assert(RT1m.isElem(e2));
                 assert(Rbod[RT2i] != 0);
                 assert(NT2[e2] == 0);
-                // move T3 and T4 index forward and T2 index back
+                // Move T3 and T4 index forward and T2 index back.
                 const T3count = @popCount(Rbod[RT2i]);
                 RT2i -= 1;
                 assert(T3count > 0);
@@ -1238,22 +1228,22 @@ pub const RuneSet = struct {
             }
             const inRT2 = RT1m.isElem(e2);
             if (inLT2 and inRT2) {
-                // Find T3 overlaps and apply T4 accordingly
+                // Find T3 overlaps and apply T4 accordingly.
                 assert(NT2[e2] != 0);
                 const LT2m = toMask(NT2[e2]);
                 assert(Rbod[RT2i] != 0);
                 const RT2m = toMask(Rbod[RT2i]);
-                // We're done with RT2i, decrement
+                // We're done with RT2i, decrement.
                 RT2i -= 1;
                 const bothT2m = LT2m.intersection(RT2m);
-                // iterate the union of this T2 word backward
+                // Iterate the union of this T2 word backward.
                 var unionT2iter = toMask(LT2m.m | RT2m.m).iterElemBack();
                 while (unionT2iter.next()) |e3| {
                     if (bothT2m.isElem(e3)) {
                         // We iterate forward through T3 and T4.
                         // Intersections are diffed,
                         // zeroed words remove that NT3 bit.
-                        assert(NT3[NT3i] != 0); // may not be true later!
+                        assert(NT3[NT3i] != 0); // May not be true later!
                         const eLT3m = toMask(NT3[NT3i]);
                         assert(Rbod[RT3i] != 0);
                         const eRT3m = toMask(Rbod[RT3i]);
@@ -1261,12 +1251,12 @@ pub const RuneSet = struct {
                         while (unionT3iter.next()) |e4| {
                             if (eLT3m.isElem(e4) and eRT3m.isElem(e4)) {
                                 NT4[NT4i] &= ~Rbod[RT4i];
-                                // null check for T3 mask out
+                                // Null check for T3 mask.
                                 if (NT4[NT4i] == 0) {
                                     var NT3m = toMask(NT3[NT3i]);
                                     NT3m.remove(codeunit(e4));
                                     NT3[NT3i] = NT3m.m;
-                                } // NT3[NT3i] checked after unionT3iter while loop
+                                } // NT3[NT3i] checked after unionT3iter while loop.
                                 NT4i += 1;
                                 RT4i += 1;
                             } else if (eRT3m.isElem(e4)) {
@@ -1280,8 +1270,8 @@ pub const RuneSet = struct {
                             var N3m = toMask(NT2[e2]);
                             N3m.remove(codeunit(e3));
                             NT2[e2] = N3m.m;
-                        } // NT2[e2] checked after unionT2iter while loop
-                        // finished iterating T3 mask
+                        } // NT2[e2] checked after unionT2iter while loop.
+                        // Finished iterating T3 mask.
                         NT3i += 1;
                         RT3i += 1;
                     } else if (RT2m.isElem(e3)) {
@@ -1293,11 +1283,11 @@ pub const RuneSet = struct {
                         NT3i += 1;
                     }
                 }
-                // Check for empty NT2 mask
+                // Check for empty NT2 mask.
                 if (NT2[e2] == 0) {
                     LLeadMask.remove(codeunit(e2));
                 }
-            } else { // Must be L2, we skip forward
+            } else { // Must be L2, we skip forward.
                 assert(inLT2);
                 const NT3count = @popCount(NT2[e2]);
                 for (0..NT3count) |_| {
@@ -1306,13 +1296,13 @@ pub const RuneSet = struct {
                     NT3i += 1;
                 }
             }
-        } // Postconditions
+        } // Postconditions:
         assert(NT4i == NT4.len);
-        // No post for NT3i, we may have removed bits from the popcount
+        // No post for NT3i, we may have removed bits from the popcount.
         assert(RT2i == R.t2_4b_start() - 1);
         assert(RT3i == R.t3_3c_start());
         assert(RT4i == Rbod.len);
-        // assemble
+        // Assemble set.
         header[LEAD] = LLeadMask.m;
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
@@ -1348,9 +1338,9 @@ pub const RuneSet = struct {
             @memcpy(Nbod, &header);
             return RuneSet{ .body = Nbod };
         }
-        // No spreading L2 into NT2 this time, it would just create extra work
+        // No spreading L2 into NT2 this time, it would just create extra work.
         var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
-        // Must be reassigned to header[LEAD] before returning
+        // Must be reassigned to header[LEAD] before returning.
         var NLeadMask = toMask(header[LEAD]);
         const LT1m = L.maskAt(LEAD);
         const RT1m = R.maskAt(LEAD);
@@ -1359,7 +1349,7 @@ pub const RuneSet = struct {
             var LT2i: usize = L.t2start();
             var RT2i: usize = L.t2start();
             while (T2iter.next()) |e2| {
-                // only time we can test with NLeadMask
+                // Only time we can test with NLeadMask:
                 if (NLeadMask.isElem(e2)) {
                     NT2[e2] = Lbod[LT2i] & Rbod[RT2i];
                     if (NT2[e2] == 0) {
@@ -1374,7 +1364,7 @@ pub const RuneSet = struct {
                     RT2i += 1;
                 }
             }
-        } // we can check LEAD to see if there are surviving c bytes
+        } // We can check LEAD to see if there are surviving c bytes.
         if (NLeadMask.m & MASK_OUT_TWO == 0) {
             header[LEAD] = NLeadMask.m;
             const T2c = compactSlice(&NT2);
@@ -1390,7 +1380,7 @@ pub const RuneSet = struct {
         defer allocator.free(NT3);
         @memset(NT3, 0);
         {
-            // We iterate back through both T2s to find surviving T3s
+            // We iterate back through both T2s to find surviving T3s.
             var unionT2iter = blk: {
                 const RT1c_m = Rbod[LEAD] & MASK_OUT_TWO;
                 const LT1c_m = Lbod[LEAD] & MASK_OUT_TWO;
@@ -1403,7 +1393,7 @@ pub const RuneSet = struct {
             var NT3i: usize = 0;
             while (unionT2iter.next()) |e2| {
                 if (bothT1m.isElem(e2)) {
-                    // this can be empty, we still have to track LT3 and RT3
+                    // This can be empty, we still have to track LT3 and RT3.
                     var NT2m = toMask(NT2[e2]);
                     const LT2m = toMask(Lbod[LT2i]);
                     const RT2m = toMask(Rbod[RT2i]);
@@ -1431,7 +1421,7 @@ pub const RuneSet = struct {
                         }
                     }
                     NT2[e2] = NT2m.m;
-                    // might have started zero, but if not:
+                    // Might have started zero, but if not:
                     if (NT2[e2] == 0 and NLeadMask.isElem(e2)) {
                         NLeadMask.remove(codeunit(e2));
                     }
@@ -1465,19 +1455,19 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // Tier 4
-        // Once again, reference on L
+        // Once again, reference on L.
         const NT4 = try allocator.alloc(u64, L.t4slice().?.len);
         defer allocator.free(NT4);
         @memset(NT4, 0);
         {
-            // backward through T2s
+            // Backward through T2s.
             var RT2i = R.t2final();
             var LT2i = L.t2final();
-            // forward through d bytes of T3
+            // Forward through d bytes of T3.
             var NT3i: usize = 0;
             var LT3i = L.t3start();
             var RT3i = R.t3start();
-            // forward through T4
+            // Forward through T4.
             var NT4i: usize = 0;
             var LT4i = L.t4offset();
             var RT4i = R.t4offset();
@@ -1579,7 +1569,7 @@ pub const RuneSet = struct {
                     }
                 }
             } // end T2 iter
-            // Postconditions
+            // Postconditions:
             assert(NT4i == NT4.len);
             assert(LT3i == L.t3_3c_start());
             assert(RT3i == R.t3_3c_start());
@@ -1590,10 +1580,11 @@ pub const RuneSet = struct {
             assert(LT2i == L.t2start() + @popCount(Lbod[LEAD] & MASK_OUT_FOUR) - 1);
             assert(NT3.len >= popCountSlice(NT2[TWO_MAX..]));
         } // end T4
-        header[LEAD] = NLeadMask.m;
-        // these two are only used in debug mode, should be elided otherwise
+        // These two are only used in debug mode, should be elided otherwise.
         const popT3 = popCountSlice(NT2[TWO_MAX..]);
         const popT4 = popCountSlice(NT2[THREE_MAX..]);
+        // Final assembly.
+        header[LEAD] = NLeadMask.m;
         const T2c = compactSlice(&NT2);
         const T2end = 4 + T2c.len;
         const T3c = compactSlice(NT3);
@@ -1615,6 +1606,7 @@ pub const RuneSet = struct {
     }
 };
 
+// An invalid Rune to signal a non-iterated RuneSetIterator.
 const RUNE_START: u32 = 0xffff_ffff;
 
 /// Iterate a set's members, one Rune at a time,
@@ -1626,8 +1618,8 @@ pub const RuneSetIterator = struct {
 
     /// Create a RuneIterator.
     pub fn init(set: RuneSet) RuneSetIterator {
-        // sentinel value (never valid)
         return RuneSetIterator{
+            // sentinel value (never valid)
             .last = @bitCast(RUNE_START),
             .idx = 0,
             .set = set,
@@ -1641,7 +1633,8 @@ pub const RuneSetIterator = struct {
     //| transitions will be inlined.  I've opted to only store
     //| the index into the last byte, and recalculate when needed.
     //| Checking test membership needs to construct the same state
-    //| for every successful match, and is very fast.
+    //| for every successful match, and is very fast.  The most
+    //| frequent changes are the cheapest.
 
     /// Yield the next Rune, or `null` when the
     /// set completes.
@@ -1652,12 +1645,12 @@ pub const RuneSetIterator = struct {
                 iter.last = r;
                 return iter.last;
             } else {
-                // If this is null, no need to reset
+                // If this is null, no need to reset.
                 return null;
             }
         }
         // Note: the resulting rune may be of up to four bytes,
-        // regardless of which switch prong is taken
+        // regardless of which switch prong is taken.
         const rune = switch (iter.last.byteCount()) {
             1 => iter.ascii(),
             2 => iter.bRune(),
@@ -1668,7 +1661,7 @@ pub const RuneSetIterator = struct {
         if (rune) |r| {
             return r;
         } else {
-            // Reset as safety measure
+            // Reset as safety measure.
             iter.reset();
             return null;
         }
@@ -1682,7 +1675,7 @@ pub const RuneSetIterator = struct {
 
     /// Set up a fresh RuneSetIterator.
     fn setup(iter: *RuneSetIterator) ?Rune {
-        // Set up the RuneSetIterator, and return when possible
+        // Set up the RuneSetIterator, and return when possible.
         assert(iter.idx == LOW);
         var maybe_a = iter.set.maskAt(LOW).first(.low);
         if (maybe_a) |a| {
@@ -1709,7 +1702,7 @@ pub const RuneSetIterator = struct {
                 iter.idx = HI;
                 return iter.last;
             } else {
-                // Something multi-byte (maybe)
+                // Something multi-byte (maybe).
                 return iter.setupHi();
             }
         }
@@ -1753,9 +1746,9 @@ pub const RuneSetIterator = struct {
             assert(iter.set.body[LEAD] & MASK_IN_FOUR != 0);
             assert(iter.set.body[T4_OFF] != 0);
             // To obtain T4:
-            // Herein lies a mystery
+            // Herein lies a mystery:
             const T4off = iter.set.body.len - @popCount(iter.set.body[T3off]);
-            // Understand why this is true, and you understand the RuneSet
+            // Understand why this is true, and you understand the RuneSet.
             assert(T4off == iter.set.t4offsetFor(T3off, c));
             const d = iter.set.maskAt(T4off).first(.follow).?;
             iter.last = Rune{
@@ -1767,7 +1760,7 @@ pub const RuneSetIterator = struct {
             iter.idx = T4off;
             return iter.last;
         } else {
-            // Empty set
+            // Empty set.
             assert(iter.set.body[LEAD] == 0);
             assert(iter.set.body[T4_OFF] == 0);
             assert(iter.last.rawInt() == RUNE_START or iter.last.byteCount() == 1);
@@ -1914,11 +1907,11 @@ pub const RuneSetIterator = struct {
     /// of a given T3 mask.
     fn afterCword(iter: *RuneSetIterator) ?Rune {
         assert(iter.last.byteCount() == 3);
-        // a and b are known, we need the next b
+        // a and b are known, we need the next b.
         var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
         const b_next = iter.set.maskAt(T2off).after(codeunit(iter.last.b));
         if (b_next) |b| {
-            // since a hasn't changed, we know it's still a three-byte
+            // Since a hasn't changed, we know it's still a three-byte
             // sequence:
             const T3off = iter.idx - 1;
             assert(T3off == iter.set.t3offsetFor(T2off, b));
@@ -1931,7 +1924,7 @@ pub const RuneSetIterator = struct {
             };
             iter.idx = T3off;
             return iter.last;
-        } // otherwise, next a:
+        } // Otherwise, next a:
         const a_next = iter.set.maskAt(LEAD).after(codeunit(iter.last.a));
         if (a_next) |a| {
             T2off += 1;
@@ -1939,7 +1932,7 @@ pub const RuneSetIterator = struct {
             const b = iter.set.maskAt(T2off).first(.follow).?;
             switch (a.nMultiBytes().?) {
                 3, 4 => |nB| {
-                    // iter.idx is still in T3
+                    // iter.idx is still in T3.
                     const T3off = iter.idx - 1;
                     assert(T3off == iter.set.t3offsetFor(T2off, b));
                     const c = iter.set.maskAt(T3off).first(.follow).?;
@@ -1955,11 +1948,11 @@ pub const RuneSetIterator = struct {
                         iter.idx = T3off;
                         return iter.last;
                     } else {
-                        // since we're in resetToC, there are three-byte
+                        // Since we're in afterCword, there are three-byte
                         // sequences, so this test is valid:
                         assert(iter.set.t3start() <= T3off);
                         assert(T3off < iter.set.t3_3c_start());
-                        // since we're in resetToC, this is the first d
+                        // Since we're in afterCword, this is the first d.
                         iter.idx = iter.set.body.len - @popCount(iter.set.body[T3off]);
                         assert(iter.idx == iter.set.t4offsetFor(T3off, c));
                         const d = iter.set.maskAt(iter.idx).first(.follow).?;
@@ -2002,12 +1995,12 @@ pub const RuneSetIterator = struct {
     /// happen to exist.
     fn resetToD(iter: *RuneSetIterator) ?Rune {
         assert(iter.last.byteCount() == 4);
-        // Try for next c
+        // Try for next c.
         var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
         var T3off = iter.set.t3offsetFor(T2off, codeunit(iter.last.b));
         const maybe_c = iter.set.maskAt(T3off).after(codeunit(iter.last.c));
         if (maybe_c) |c| {
-            // Since we're still in the same c mask, increment is valid
+            // Since we're still in the same c mask, increment is valid.
             iter.idx += 1;
             assert(iter.idx == iter.set.t4offsetFor(T3off, c));
             const d = iter.set.maskAt(iter.idx).first(.follow).?;
@@ -2018,10 +2011,10 @@ pub const RuneSetIterator = struct {
                 .d = d.byte(),
             };
             return iter.last;
-        } else { // New b needed
+        } else { // New b needed.
             const maybe_b = iter.set.maskAt(T2off).after(codeunit(iter.last.b));
             if (maybe_b) |b| {
-                // T3off can be decremented
+                // T3off can be decremented.
                 T3off -= 1; // Equal to this more expensive calculation:
                 assert(T3off == iter.set.t3offsetFor(T2off, b));
                 const c = iter.set.maskAt(T3off).first(.follow).?;
@@ -2039,10 +2032,10 @@ pub const RuneSetIterator = struct {
                     .d = d.byte(),
                 };
                 return iter.last;
-            } else { // New a needed
+            } else { // New a needed.
                 const maybe_a = iter.set.maskAt(LEAD).after(codeunit(iter.last.a));
                 if (maybe_a) |a| {
-                    // increment in T2
+                    // Increment in T2.
                     T2off += 1;
                     // Was already in d byte region, so now, must be greater
                     // than the first offset:
@@ -2063,7 +2056,7 @@ pub const RuneSetIterator = struct {
                         .d = d.byte(),
                     };
                     return iter.last;
-                } else { // No a means we're done
+                } else { // No a means we're done.
                     iter.reset();
                     return null;
                 }
@@ -2138,15 +2131,16 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
     // ASCII is now complete, copy over the masks to the header.
     header[LOW] = low.m;
     header[HI] = hi.m;
-    if (lead.count() == 0) { // set was ASCII-only
+    if (lead.count() == 0) { // Set was ASCII-only.
         assert(sieve.len == back);
         const memHeader = try allocator.alloc(u64, 4);
         @memcpy(memHeader, &header);
         return memHeader;
     }
     sieve = sieve[0 .. sieve.len - back];
-    // sieve for second bytes
-    var T2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX; // Masks for all second bytes.
+    // Sieve for second bytes.
+    // Here we add an extra empty word to prevent a conditional later.
+    var T2: [FOUR_MAX + 1]u64 = .{0} ** (FOUR_MAX + 1); // Masks for all second bytes.
     idx = 0;
     back = 0;
     while (idx < sieve.len) {
@@ -2161,10 +2155,9 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
                 if (nBytes) |nB| {
                     if (idx + nB > sieve.len) return InvalidUnicode;
                     assert(lead.isIn(cu));
-                    // add all second bytes
+                    // Add all second bytes.
                     const b = codeunit(sieve[idx + 1]);
                     if (b.kind != .follow) return InvalidUnicode;
-                    // guaranteed in-range because nBytes validates
                     var bMask = toMask(T2[cu.body]);
                     bMask.add(b);
                     T2[cu.body] = bMask.m;
@@ -2183,13 +2176,13 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
                 } else return InvalidUnicode;
             },
         }
-    } // All second bytes accounted for
+    } // All second bytes accounted for.
     header[LEAD] = lead.m;
     if (sieve.len == back) {
-        // High region of T2 must be empty (sanity check)
+        // High region of T2 must be empty:
         assert(popCountSlice(T2[TWO_MAX..]) == 0);
         const T2c = compactSlice(&T2);
-        // Should be length of popcount
+        // Should be length of popcount:
         assert(T2c.len == lead.count());
         const setBody = try allocator.alloc(u64, 4 + T2c.len);
         @memcpy(setBody[0..4], &header);
@@ -2197,9 +2190,9 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
         return setBody;
     }
     sieve = sieve[0 .. sieve.len - back];
-    // sieve for third bytes
-    // number of elements in the high region of T2
-    // is the number of masks in T3
+    // Sieve for third bytes.
+    // Number of elements in the high region of T2
+    // is the number of masks in T3.
     const T3: []u64 = try allocator.alloc(u64, popCountSlice(T2[TWO_MAX..]));
     defer allocator.free(T3);
     @memset(T3, 0);
@@ -2216,18 +2209,14 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
                 assert(nB >= 3);
                 assert(one.body >= TWO_MAX);
                 const two = codeunit(sieve[idx + 1]);
-                assert(two.kind == .follow); // already validated in sieve two
-                // T2 is one-to-one
+                assert(two.kind == .follow); // Already validated in sieve two.
+                // T2 is one-to-one.
                 const twoMask = toMask(T2[one.body]);
                 assert(twoMask.isIn(two));
-                // count all higher elements
+                // Count all higher elements.
                 const hiThree = twoMask.higherThan(two).?;
-                // ward off the impractical case where our lead
-                // byte is the maximum value allowed by Unicode
-                const threeOff = if (one.body < FOUR_MAX - 1)
-                    hiThree + popCountSlice(T2[one.body + 1 ..])
-                else
-                    hiThree;
+                // Unconditional due to the extra mask in T2.
+                const threeOff = hiThree + popCountSlice(T2[one.body + 1 ..]);
                 const three = codeunit(sieve[idx + 2]);
                 if (three.kind != .follow) return InvalidUnicode;
                 var threeMask = toMask(T3[threeOff]);
@@ -2247,13 +2236,13 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
         }
     }
     if (sieve.len == back) {
-        // No four-byte characters
-        // "very high" region of T2 must be empty
+        // No four-byte characters.
+        // "very high" region of T2 must be empty:
         assert(popCountSlice(T2[THREE_MAX..]) == 0);
-        // T3 must have values in it
+        // T3 must have values in it:
         assert(popCountSlice(T3) != 0);
         const T2c = compactSlice(&T2);
-        // Must be length of popcount
+        // Must be length of popcount:
         assert(T2c.len == lead.count());
         const T3off = 4 + T2c.len;
         const setLen = T3off + T3.len;
@@ -2265,7 +2254,7 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
     }
     sieve = sieve[0 .. sieve.len - back];
     // We now know the T4 header offset:
-    // Length of header (4) + compacted T2 + popcount hi T2
+    // Length of header (4) + compacted T2 + popcount hi T2.
     const T4Head = 4 + nonZeroCount(&T2) + popCountSlice(T2[TWO_MAX..]);
     header[T4_OFF] = T4Head;
     // Allocate T4: this is counted by a popcount of all
@@ -2276,12 +2265,12 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
     const T4 = try allocator.alloc(u64, T4len);
     defer allocator.free(T4);
     @memset(T4, 0);
-    // we no longer need back
+    // We no longer need back.
     idx = 0;
-    // sieve for fourth byte
-    // T4 is a zig, not a zag: laid out forward, such that the
-    // highest Unicode values of a codepoint are found at the
-    // end of the T4 region.
+    // Sieve for fourth byte.
+    // T4 is 'striped': the lexical order runs back to front, but
+    // forward with respect to any one T3 word mask.  This allows
+    // for the optimally-minimal amount of offset calculation.
     while (idx < sieve.len) {
         const one = codeunit(sieve[idx]);
         switch (one.kind) {
@@ -2297,12 +2286,9 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
                 // the maze...
                 const twoMask = toMask(T2[one.body]);
                 assert(twoMask.isIn(two));
-                // count all higher elements
+                // Count all higher elements.
                 const hiThree = twoMask.higherThan(two).?;
-                const threeOff = if (one.body < FOUR_MAX - 1)
-                    hiThree + popCountSlice(T2[one.body + 1 ..])
-                else
-                    hiThree;
+                const threeOff = hiThree + popCountSlice(T2[one.body + 1 ..]);
                 const three = codeunit(sieve[idx + 2]);
                 const threeMask = toMask(T3[threeOff]);
                 assert(threeMask.isIn(three));
@@ -2321,10 +2307,10 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
             },
         }
     }
-    // given that the above is correct, we have validated UTF-8,
-    // and added all runes in the string.
+    // Given that the above is correct, we have validated UTF-8,
+    // at least for our purposes, and added all runes in the string.
     const T2c = compactSlice(&T2);
-    // Must be length of lead popcount
+    // Must be length of lead popcount.
     assert(T2c.len == lead.count());
     const T3off = 4 + T2c.len;
     const T4off = header[T4_OFF];
@@ -2382,7 +2368,7 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
             const t3_off = 4 + @popCount(set[LEAD]);
             const c = codeunit(str[2]);
             if (c.kind != .follow) return null;
-            // Slice is safe because we know the T2 span has at least one word
+            // Slice is safe because we know the T2 span has at least one word.
             const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
             const c_loc = t3_off + c_off;
             const c_mask = toMask(set[c_loc]);
@@ -2404,7 +2390,7 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
 /// matched.  This performs no validation, meaning that invalid unicode
 /// can return bogus results.  Truncated UTF-8 at the end of a buffer
 /// *will* read beyond valid memory in fast release modes.  This
-/// function is, however safe to call with a follow byte at [0].
+/// function is, however, safe to call with a follow byte at [0].
 fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
     const a = codeunit(str[0]);
     switch (a.kind) {
@@ -2438,7 +2424,7 @@ fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
             const t3_off = 4 + @popCount(set[LEAD]);
             const c = codeunit(str[2]);
             assert(c.kind == .follow);
-            // Slice is safe because we know the T2 span has at least one word
+            // Slice is safe because we know the T2 span has at least one word.
             const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
             const c_loc = t3_off + c_off;
             const c_mask = toMask(set[c_loc]);
@@ -2454,7 +2440,7 @@ fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
     }
 }
 
-/// Count non-zero members of word slice
+/// Count non-zero members of word slice.
 inline fn nonZeroCount(words: []const u64) usize {
     var w: usize = 0;
     for (words) |word| {
@@ -2464,7 +2450,7 @@ inline fn nonZeroCount(words: []const u64) usize {
     return w;
 }
 
-/// sum of @popCount of all words in region.
+/// Sum of @popCount of all words in region.
 fn popCountSlice(region: []const u64) usize {
     var ct: usize = 0;
     for (region) |w| ct += @popCount(w);
@@ -2473,7 +2459,7 @@ fn popCountSlice(region: []const u64) usize {
 
 test popCountSlice {
     const region: [4]u64 = .{ 0, 0, 1, 3 };
-    // check that empty slice returns 0
+    // Check that empty slice returns 0.
     try expectEqual(0, popCountSlice(region[2..2]));
     try expectEqual(3, popCountSlice(&region));
 }
@@ -2493,7 +2479,7 @@ fn compactSlice(slice: []u64) []u64 {
 }
 
 /// Make a mutable copy of a constant string.
-fn makeMutable(s: []const u8, a: Allocator) ![]u8 {
+fn makeMutable(s: []const u8, a: Allocator) error{OutOfMemory}![]u8 {
     const mut = try a.alloc(u8, s.len);
     @memcpy(mut, s);
     return mut;
@@ -2507,6 +2493,23 @@ test compactSlice {
     try expectEqual(2, smol[1]);
     try expectEqual(1, smol[2]);
 }
+
+//| Includes and namespacing.
+
+const std = @import("std");
+const builtin = @import("builtin");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
+const elements = @import("elements.zig");
+
+const Mask = elements.Mask;
+const toMask = Mask.toMask;
+/// A wrapper for a single byte of utf8
+pub const CodeUnit = elements.CodeUnit;
+/// codeunit(:u8) creates a CodeUnit
+pub const codeunit = elements.codeunit;
+pub const Rune = elements.Rune;
 
 const testing = std.testing;
 const expect = testing.expect;

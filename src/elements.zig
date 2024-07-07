@@ -41,6 +41,8 @@ pub const CodeUnit = packed struct(u8) {
     pub inline fn nMultiBytes(self: *const CodeUnit) ?u8 {
         assert(self.kind == .lead);
         return switch (self.body) {
+            // 0 and 1 are invalid for overlong reasons,
+            // but RuneSet supports overlong encodings
             0...31 => 2,
             32...47 => 3,
             48...55 => 4,
@@ -109,7 +111,8 @@ pub inline fn codeunit(b: u8) CodeUnit {
 /// An important category of Rune is a *conformant* Rune.  This will be
 /// either a single byte of invalid data at `.a`, or is a complete byte
 /// sequenced codepoint, whether or not that specific sequence is valid
-/// UTF-8: what the WTF-8 standard calls "generalized" UTF-8.
+/// UTF-8: what the WTF-8 standard calls "generalized" UTF-8.  Overlong
+/// encodings are deliberately excluded from conformance.
 ///
 /// The Rune API functions will return only conforming Runes as we have
 /// defined above.  Functions which assume conformance will assert that
@@ -143,10 +146,11 @@ pub const Rune = packed struct(u32) {
                     .b = 0,
                     .c = 0,
                     .d = 0,
-                },
-                .follow => unreachable, // nBytes is null for this case
+                }, // nBytes is null for this case
+                .follow => unreachable,
                 .lead => {
                     switch (slice[0]) {
+                        // 0xc0 and 0xc1 are invalid (overlong)
                         0xc2...0xdf => {
                             if (codeunit(slice[1]).kind == .follow)
                                 return Rune{
@@ -169,7 +173,7 @@ pub const Rune = packed struct(u32) {
                                 }
                             else
                                 return null;
-                        },
+                        }, // Surrogates are allowed.
                         0xe1...0xef => {
                             if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow)
                                 return Rune{
@@ -207,7 +211,7 @@ pub const Rune = packed struct(u32) {
                         },
                         0xf4 => {
                             if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
-                                // omit values without an equivalent codepoint
+                                // Omit values without an equivalent codepoint.
                                 if (slice[1] > 0x8f) {
                                     return null;
                                 }
@@ -218,7 +222,7 @@ pub const Rune = packed struct(u32) {
                                     .d = slice[3],
                                 };
                             } else return null;
-                        }, // nBytes handles two-byte overlongs and overhigh
+                        }, // nBytes handles overhigh lead bytes
                         else => unreachable,
                     }
                 },
@@ -329,7 +333,9 @@ pub const Rune = packed struct(u32) {
     /// Convert a `Rune` to the codepoint it represents.  This function
     /// assumes a conformant `Rune`.  An error is returned If called on
     /// malformed data.  This will return a codepoint for a `Rune` that
-    /// represents a surrogate.
+    /// represents a surrogate.  Conformance is asserted in safe modes.
+    /// Note that by their nature, Runes which contain an overlong code
+    /// unit sequence will decode in fast modes to a spurious value.
     pub fn toCodepoint(rune: Rune) !u21 {
         if (rune.a < A_MAX) return @intCast(rune.a);
         if (rune.b == 0) return error.InvalidUnicode;
@@ -484,7 +490,7 @@ pub const Rune = packed struct(u32) {
             },
             0xf4 => {
                 if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
-                    // omit values without an equivalent codepoint
+                    // Omit values without an equivalent codepoint.
                     if (b > 0x8f) {
                         return false;
                     } else {
@@ -565,10 +571,8 @@ pub const Rune = packed struct(u32) {
     /// Test whether the `Rune` encodes a UTF-8 scalar value.  This may
     /// only be called on conformant `Runes`, and this property will be
     /// asserted in safety build modes.  For `Rune`s which are possibly
-    /// non-conforming, use `isScalarValueAnyRune`.  Note that any Rune
-    /// which is conformant will not be overlong.
+    /// non-conforming, use `isScalarValueAnyRune`.
     pub fn isScalarValue(rune: Rune) bool {
-        // TODO probably want to assert overlongs at least
         // Reference: Table 3-7 of The Unicode Standard 15.0
         // https://www.unicode.org/versions/Unicode15.0.0/UnicodeStandard-15.0.pdf
         if (rune.a <= 0x7f) {
@@ -580,20 +584,23 @@ pub const Rune = packed struct(u32) {
             assert(rune.b & 0xc0 == 0x80);
             return true;
         } else if (rune.a >= 0xe0 and rune.a <= 0xec) {
+            assert(!(rune.a == 0xe0 and rune.b < 0xa0));
             assert(rune.b & 0xc0 == 0x80);
             assert(rune.c & 0xc0 == 0x80);
             return true;
         } else if (rune.a == 0xed) {
             // Avoid surrogates
             return (rune.b >= 0x80 and rune.b <= 0x9f) and (rune.c & 0xc0) == 0x80;
-        } else if (rune.a >= 0xee and rune.a <= 0xef) {
+        } else if (rune.a == 0xee or rune.a == 0xef) {
             assert(rune.b & 0xc0 == 0x80);
             assert(rune.c & 0xc0 == 0x80);
             return true;
         } else if (rune.a >= 0xf0 and rune.a <= 0xf4) {
+            assert(!(rune.a == 0xf0 and rune.b < 0x90));
             assert(rune.b & 0xc0 == 0x80);
             assert(rune.c & 0xc0 == 0x80);
             assert(rune.d & 0xc0 == 0x80);
+            assert(!(rune.a == 0xf4 and rune.b > 0x8f));
             return true;
         } else { // conformant runes will not have over-high leads unless b == 0
             unreachable;
