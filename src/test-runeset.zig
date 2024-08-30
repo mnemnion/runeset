@@ -45,6 +45,7 @@ fn testMatchNone(set: RuneSet, str: []const u8) !void {
         const slice = str[idx..];
         const nB = codeunit(slice[0]).nBytes() orelse 1;
         try expectEqual(0, set.matchOne(slice));
+        try expectEqual(null, set.ordinalMatch(slice));
         idx += nB;
     }
     // second pass to assure invalid follow bytes are handled safely
@@ -462,7 +463,10 @@ test "coverage cases" {
     try expectEqual(null, setGreek.t3slice());
     // invalid follow byte
     try expectEqual(null, setGreek.matchOne("\x9f"));
+    try expectEqual(null, setGreek.ordinalMatch("\x9f"));
     try expectEqual(0, setGreek.matchOneAssumeValid("\x9f"));
+    // No slice
+    try expectEqual(null, setGreek.t3_3c_slice());
     const setABC = try RuneSet.createFromConstString("abc", allocator);
     defer setABC.deinit(allocator);
     try expectEqual(0, setABC.matchOneAssumeValid("d"));

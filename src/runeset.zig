@@ -513,14 +513,14 @@ pub const RuneSet = struct {
         switch (a.kind) {
             .low => {
                 const low_m = self.maskAt(LOW);
-                if (low_m.isIn(a)) {
-                    return low_m.lowerThan(a);
+                if (low_m.lowerThan(a)) |a_count| {
+                    return a_count;
                 } else return null;
             },
             .hi => {
                 const hi_m = self.maskAt(HI);
-                if (hi_m.isIn(a)) {
-                    return @popCount(set[LOW]) + hi_m.lowerThan(a).?;
+                if (hi_m.lowerThan(a)) |a_count| {
+                    return @popCount(set[LOW]) + a_count;
                 } else return null;
             },
             .follow => return null,
@@ -528,7 +528,7 @@ pub const RuneSet = struct {
                 const nB = a.nMultiBytes() orelse return null;
                 if (nB > slice.len) return null;
                 const a_mask = self.leadMask();
-                if (!a_mask.isIn(a)) return 0;
+                if (!a_mask.isIn(a)) return null;
                 const b = codeunit(slice[1]);
                 if (b.kind != .follow) return null;
                 const t2off = 4 + a_mask.lowerThan(a).?;
@@ -540,6 +540,7 @@ pub const RuneSet = struct {
                     }
                 } else return null;
                 const c = codeunit(slice[2]);
+                if (c.kind != .follow) return null;
                 const t3off = self.t3offsetFor(t2off, b);
                 const c_mask = self.maskAt(t3off);
                 const maybe_c_count = c_mask.lowerThan(c);
@@ -556,6 +557,7 @@ pub const RuneSet = struct {
                     }
                 } else return null;
                 const d = codeunit(slice[3]);
+                if (d.kind != .follow) return null;
                 const t4off = self.t4offsetFor(t3off, c);
                 const d_mask = self.maskAt(t4off);
                 if (d_mask.lowerThan(d)) |d_count| {
