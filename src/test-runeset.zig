@@ -127,12 +127,14 @@ fn verifySetIteration(set: RuneSet) !void {
             try expect(lastRune.rawInt() < rune.rawInt());
         }
         codeunits += rune.byteCount();
-        rune_count += 1;
         lastRune = rune;
         const runeArray = rune.toByteArray();
         const matchedBytes = set.matchOne(&runeArray).?;
         const byteCount = rune.byteCount();
         try expectEqual(byteCount, matchedBytes);
+        const order = set.ordinalMatch(&runeArray).?;
+        try expectEqual(rune_count, order);
+        rune_count += 1;
     }
     std.debug.print("\n", .{});
     try expectEqual(set.codeunitCount(), codeunits);
