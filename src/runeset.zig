@@ -153,6 +153,21 @@ pub const RuneSet = struct {
         return toMask(self.body[off]);
     }
 
+    // No need for noTwoBytes because LEAD is present
+    // in all cases, so testing a lead byte is always
+    // safe.
+
+    /// Test whether the `RuneSet` has any three- or four-byte
+    /// codepoints.
+    inline fn noThreeBytes(self: RuneSet) bool {
+        return self.body[LEAD] & MASK_OUT_TWO == 0;
+    }
+
+    /// Test whether the `RuneSet` has any four-byte codepoints.
+    inline fn noFourBytes(self: RuneSet) bool {
+        return self.body[T4_OFF] == 0;
+    }
+
     //| Debugging
 
     pub fn debugMaskAt(self: RuneSet, off: usize) void {
@@ -215,21 +230,6 @@ pub const RuneSet = struct {
         self.debugT2();
         self.debugT3();
         self.debugT4();
-    }
-
-    // No need for noTwoBytes because LEAD is present
-    // in all cases, so testing a lead byte is always
-    // safe.
-
-    /// Test whether the `RuneSet` has any three- or four-byte
-    /// codepoints.
-    inline fn noThreeBytes(self: RuneSet) bool {
-        return self.body[LEAD] & MASK_OUT_TWO == 0;
-    }
-
-    /// Test whether the `RuneSet` has any four-byte codepoints.
-    inline fn noFourBytes(self: RuneSet) bool {
-        return self.body[T4_OFF] == 0;
     }
 
     /// Add all mask words of the set's T2 region to a new T2,
@@ -536,15 +536,31 @@ pub const RuneSet = struct {
     // byte codepoints.
     fn counts(self: RuneSet) struct { usize, usize, usize, usize } {
         var c: [4]u64 = .{0} ** 4;
-        c[0] = popCountSlice(self.body[LOW..LEAD]);
+        c[0] = self.countA();
         if (self.body[LEAD] == 0) return .{ c[0], c[1], c[2], c[3] };
-        const twosCount: usize = @popCount(self.body[LEAD] & MASK_IN_TWO);
-        c[1] = popCountSlice(self.body[4 .. 4 + twosCount]);
+        c[1] = self.countB();
         if (self.noThreeBytes()) return .{ c[0], c[1], c[2], c[3] };
-        c[2] = popCountSlice(self.body[self.t3_3c_start()..self.t3end()]);
+        c[2] = self.countC();
         if (self.noFourBytes()) return .{ c[0], c[1], c[2], c[3] };
-        c[3] = popCountSlice(self.body[self.t4offset()..]);
+        c[3] = self.countD();
         return .{ c[0], c[1], c[2], c[3] };
+    }
+
+    inline fn countA(self: RuneSet) usize {
+        return popCountSlice(self.body[LOW..LEAD]);
+    }
+
+    inline fn countB(self: RuneSet) usize {
+        const twosCount: usize = @popCount(self.body[LEAD] & MASK_IN_TWO);
+        return popCountSlice(self.body[4 .. 4 + twosCount]);
+    }
+
+    inline fn countC(self: RuneSet) usize {
+        return popCountSlice(self.body[self.t3_3c_start()..self.t3end()]);
+    }
+
+    inline fn countD(self: RuneSet) usize {
+        return popCountSlice(self.body[self.t4offset()..]);
     }
 
     /// Return a count of runes (Unicode codepoints) in set.
