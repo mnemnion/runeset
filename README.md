@@ -14,7 +14,7 @@ While I have yet to set up definitive benchmarks, it's clear that membership tes
 
 For real character sets, it is also quite sparing of memory.  The CJK Ideographs block of Unicode, consisting of 22,992 codepoints, is represented as a `RuneSet` in 338 words.  Dense ranges such as that block can of course be tested by decoding the tested sequence into a codepoint and checking if it's in that range, but the combination of generality, compactness, and speed, offered by the `RuneSet`, is unique.
 
-Speaking of test coverage, the library has 100% line coverage, which you may verify by running `zig build cov`, provided you have [kcov](https://github.com/SimonKagstrom/kcov) installed.  To run the extended suite, including the fuzzer, use `zig build -Dtest-more test`.  This will take an appreciable amount of time in the default debug-mode builds, as it will trigger the 243 assertions which gird the library.
+Speaking of test coverage, the library has 100% line coverage, which you may verify by running `zig build cov`, provided you have [kcov](https://github.com/SimonKagstrom/kcov) installed.  To run the extended suite, including the fuzzer, use `zig build -Dtest-more test`.  This will take an appreciable amount of time in the default debug-mode builds, as it will trigger the 244 assertions which gird the library.
 
 ## Roadmap
 

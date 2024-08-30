@@ -140,12 +140,25 @@ pub const RuneSet = struct {
             return self.body[self.t3start()..self.t3end()];
     }
 
+    /// The slice of T3 containing 3 byte final masks.
+    pub inline fn t3_3c_slice(self: RuneSet) ?[]const u64 {
+        if (self.noThreeBytes())
+            return null
+        else
+            return self.body[self.t3_3c_start()..self.t3end()];
+    }
+
     /// The slice containing four-byte masks.
     pub inline fn t4slice(self: RuneSet) ?[]const u64 {
         if (self.noFourBytes())
             return null
         else
             return self.body[self.t4offset()..];
+    }
+
+    pub inline fn t4bounds_for_c(self: RuneSet, offset: usize) struct { usize, usize } {
+        const t4start = self.t4offset() + popCountSlice(self.body[self.t3start()..offset]);
+        return .{ t4start, t4start + @popCount(self.body[offset]) };
     }
 
     /// Return `u4` at offset as a `Mask`.
@@ -488,6 +501,85 @@ pub const RuneSet = struct {
             idx += nBytes;
         }
         return idx;
+    }
+
+    /// Match a codepoint at slice, returning its lexicographical order
+    /// within the set, starting from 0, when a match is made.  Returns
+    /// `null` for no match, including ill-formed sequences.
+    pub fn ordinalMatch(self: RuneSet, slice: []const u8) ?usize {
+        const set = self.body;
+        if (slice.len == 0) return null;
+        const a = codeunit(slice[0]);
+        switch (a.kind) {
+            .low => {
+                const low_m = self.maskAt(LOW);
+                if (low_m.isIn(a)) {
+                    return low_m.lowerThan(a);
+                } else return null;
+            },
+            .hi => {
+                const hi_m = self.maskAt(HI);
+                if (hi_m.isIn(a)) {
+                    return @popCount(set[LOW]) + hi_m.lowerThan(a);
+                } else return null;
+            },
+            .follow => return null,
+            .lead => {
+                const nB = a.nMultiBytes() orelse return null;
+                if (nB > slice.len) return null;
+                const a_mask = self.leadMask();
+                if (!a_mask.isIn(a)) return 0;
+                const b = codeunit(slice[1]);
+                if (b.kind != .follow) return null;
+                const t2off = a_mask.lowerThan(a).?;
+                const b_loc = 4 + t2off;
+                const b_mask = toMask(set[b_loc]);
+                if (b_mask.isIn(b)) {
+                    if (nB == 2) {
+                        const a_count = self.countA();
+                        if (t2off == 0) {
+                            return a_count + b_mask.lowerThan(b);
+                        } else {
+                            return a_count + popCountSlice(set[4 .. b_loc - 1]) + b_mask.lowerThan(b);
+                        }
+                    }
+                } else return null;
+                const c = slice[2];
+                const t3off = self.t3offsetFor(t2off, b);
+                const c_mask = self.maskAt(t3off);
+                if (c_mask.isIn(c)) {
+                    if (nB == 3) {
+                        const ab_count = self.countA() + self.countB();
+                        // This one is a big tricky, we need the three-byte slice:
+                        const t3c_slice = self.t3_3c_slice().?;
+                        // And the offset one past that:
+                        const t3c_off = t3off + 1 - self.t3_3c_start();
+                        // Count of bytes /lower/ than c in the mask:
+                        const c_off_low = c_mask.lowerThan(c);
+                        // And the popcount of the rest of the slice (might be zero)
+                        const c_after = popCountSlice(t3c_slice[t3c_off..]);
+                        return ab_count + c_off_low + c_after;
+                    }
+                } else return null;
+                const d = slice[3];
+                const t4off = self.t4offsetFor(t3off, c);
+                const d_mask = self.maskAt(t4off);
+                if (d_mask.isIn(d)) {
+                    const abc_count = self.countA() + self.countB() + self.countC();
+                    // This one is a bit tricky because of the zaz-and-zig layout of T4.
+                    // First we get the bounds for the `d` region of `c`:
+                    const t4c_start, const t4c_end = self.t4bounds_for_c(c);
+                    // Slice with it:
+                    const t4c_slice = set[t4c_start..t4c_end];
+                    // Count every d mask of the c bytes lower than our c:
+                    const t4_low_count = popCountSlice(t4c_slice[0..c_mask.lowerThan(c)]);
+                    // Everything 'higher' than the end of that region is lower:
+                    const t4_hi_count = popCountSlice(set[t4c_end..]);
+                    // Append the low count of d itself to our total.
+                    return abc_count + t4_low_count + t4_hi_count + d_mask.lowerThan(d);
+                }
+            },
+        }
     }
 
     /// Test if two RuneSets are equal.

@@ -326,7 +326,7 @@ pub const Rune = packed struct(u32) {
                 .d = d,
             };
         } else {
-            return error.CodepointTooHigh;
+            return error.CodepointTooLarge;
         }
     }
 
@@ -696,6 +696,7 @@ pub const Mask = struct {
         return null;
     }
 
+    /// Return the first codeunit in the mask, if any.
     pub inline fn first(self: Mask, kind: RuneKind) ?CodeUnit {
         const c1 = @ctz(self.m);
         if (c1 == 64) {
@@ -1050,9 +1051,9 @@ test "Rune tests" {
     try expect(rDh2.isScalarValueAnyRune());
     try expect(rDh2.isScalarValue());
     // Too high
-    try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x110000));
-    try expectError(error.CodepointTooHigh, Rune.fromCodepoint(0x111000));
-    try expectError(error.CodepointTooHigh, Rune.fromCodepoint(std.math.maxInt(u21)));
+    try expectError(error.CodepointTooLarge, Rune.fromCodepoint(0x110000));
+    try expectError(error.CodepointTooLarge, Rune.fromCodepoint(0x111000));
+    try expectError(error.CodepointTooLarge, Rune.fromCodepoint(std.math.maxInt(u21)));
 }
 
 test "invalid Rune tests" {
