@@ -23,6 +23,7 @@ const codeunit = elements.codeunit;
 const expect = std.testing.expect;
 const expectEqual = testing.expectEqual;
 const expectError = testing.expectError;
+const expectEqualStrings = testing.expectEqualStrings;
 
 //| Test data type(s)
 
@@ -459,6 +460,22 @@ test "coverage cases" {
     const allocator = std.testing.allocator;
     const setGreek = try RuneSet.createFromConstString(greek.str, allocator);
     defer setGreek.deinit(allocator);
+    var out_array = std.ArrayList(u8).init(allocator);
+    defer out_array.deinit();
+    var writer = out_array.writer();
+    try setGreek.serialize(&writer, .private, "greek");
+    const priv_str = try out_array.toOwnedSlice();
+    defer allocator.free(priv_str);
+    const greek_str = "const greek = RuneSet{ .body = &.{ 0x0, 0x0, 0xc000, 0x0, 0xfffffffbfffe0000, 0x3ff } };\n";
+    try expectEqualStrings(greek_str, priv_str);
+    try setGreek.serialize(writer, .public, "greek");
+    const pub_str = try out_array.toOwnedSlice();
+    defer allocator.free(pub_str);
+    const pub_greek_str = "pub " ++ greek_str;
+    try expectEqualStrings(pub_greek_str, pub_str);
+    // Bit of an eyeball test...
+    const greek2 = RuneSet{ .body = &.{ 0x0, 0x0, 0xc000, 0x0, 0xfffffffbfffe0000, 0x3ff } };
+    try expect(setGreek.equalTo(greek2));
     try expectEqual(null, setGreek.t4slice());
     try expectEqual(null, setGreek.t3slice());
     // invalid follow byte

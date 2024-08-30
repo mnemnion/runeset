@@ -327,6 +327,26 @@ pub const RuneSet = struct {
         return try RuneSet.createFromMutableString(s_concat, allocator);
     }
 
+    pub const Privacy = enum {
+        private,
+        public,
+    };
+
+    /// Serialize a RuneSet as Zig source code.  First argument is any
+    /// value providing the Writer interface.  Second is an enum which
+    /// is .public for "pub const" or .private otherwise.  Last is the
+    /// name of the variable.
+    pub fn serialize(self: RuneSet, writer: anytype, public: Privacy, name: []const u8) !void {
+        if (public == .public) {
+            try writer.writeAll("pub ");
+        }
+        try writer.print("const {s} = RuneSet{{ .body = &.{{ 0x{d}", .{ name, self.body[0] });
+        for (self.body[1..]) |word| {
+            try writer.print(", 0x{x}", .{word});
+        }
+        try writer.writeAll(" } };\n");
+    }
+
     /// Write the codepoints of the RuneSet to a buffer.
     /// Caller guarantees that the buffer has room for all codepoints,
     /// this value can be obtained by calling `runeset.codeunitCount()`.
