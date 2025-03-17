@@ -138,7 +138,6 @@ fn verifySetIteration(set: RuneSet) !void {
         try expectEqual(rune_count, order);
         rune_count += 1;
     }
-    std.debug.print("\n", .{});
     try expectEqual(set.codeunitCount(), codeunits);
     try expectEqual(set.runeCount(), rune_count);
 }

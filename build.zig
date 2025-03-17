@@ -28,17 +28,49 @@ pub fn build(b: *std.Build) void {
         options.addOption(bool, "test_more", false);
     }
 
+    const test_filters: []const []const u8 = b.option(
+        []const []const u8,
+        "test-filter",
+        "Skip tests that do not match any of the specified filters",
+    ) orelse &.{};
+
     // Creates a step for unit testing. This only builds the test executable
     // but does not run it.
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/test-runeset.zig"),
         .target = target,
         .optimize = optimize,
+        .filters = test_filters,
     });
 
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
     lib_unit_tests.root_module.addOptions("config", options);
     run_lib_unit_tests.has_side_effects = true;
+
+    // ZTap test runner step.
+    const ztap_unit_tests = b.addTest(.{
+        .name = "ztap-run",
+        .root_source_file = b.path("src/test-runeset.zig"),
+        .target = target,
+        .optimize = optimize,
+        .filters = test_filters,
+        .test_runner = .{ .path = b.path("src/ztap-runner.zig"), .mode = .simple },
+    });
+
+    ztap_unit_tests.root_module.addOptions("config", options);
+    const run_ztap_tests = b.addRunArtifact(ztap_unit_tests);
+    run_ztap_tests.has_side_effects = true;
+    b.installArtifact(ztap_unit_tests);
+
+    if (b.lazyDependency("ztap", .{
+        .target = target,
+        .optimize = optimize,
+    })) |ztap_dep| {
+        ztap_unit_tests.root_module.addImport("ztap", ztap_dep.module("ztap"));
+    }
+
+    const ztap_step = b.step("ztap", "Run ZTap unit tests");
+    ztap_step.dependOn(&run_ztap_tests.step);
 
     b.installDirectory(.{
         .source_dir = lib.getEmittedDocs(),

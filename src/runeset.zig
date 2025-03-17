@@ -526,10 +526,21 @@ pub const RuneSet = struct {
     /// Match a codepoint at slice, returning its lexicographical order
     /// within the set, starting from 0, when a match is made.  Returns
     /// `null` for no match, including ill-formed sequences.
-    pub fn ordinalMatch(self: RuneSet, slice: []const u8) ?usize {
+    pub fn ordinalMatch(self: *const RuneSet, slice: []const u8) ?usize {
+        var cursor: usize = 0;
+        return self.ordinalMatchCursor(slice, &cursor);
+    }
+
+    /// Match a codepoint at cursor, returning its lexicographical order within the
+    /// set, starting from 0, when a match is made.  Returns null for no match,
+    /// including ill-formed sequences.  This will advance the cursor to the next
+    /// potential match, or to `slice.len`; when the input is valid UTF-8, this will
+    /// be the start of the next codepoint, unless the cursor is off the string.
+    pub fn ordinalMatchCursor(self: RuneSet, slice: []const u8, cursor: *usize) ?usize {
         const set = self.body;
         if (slice.len == 0) return null;
-        const a = codeunit(slice[0]);
+        const a = codeunit(slice[cursor.*]);
+        cursor.* += 1;
         switch (a.kind) {
             .low => {
                 const low_m = self.maskAt(LOW);
@@ -546,11 +557,18 @@ pub const RuneSet = struct {
             .follow => return null,
             .lead => {
                 const nB = a.nMultiBytes() orelse return null;
-                if (nB > slice.len) return null;
+                // + 1 because we already advanced the cursor
+                if (nB + cursor.* > slice.len + 1) return null;
                 const a_mask = self.leadMask();
-                if (!a_mask.isIn(a)) return null;
-                const b = codeunit(slice[1]);
-                if (b.kind != .follow) return null;
+                if (!a_mask.isIn(a)) {
+                    cursor.* += nB - 1;
+                    return null;
+                }
+                const b = codeunit(slice[cursor.*]);
+                if (b.kind != .follow) {
+                    cursor.* += nB - 1;
+                    return null;
+                }
                 const t2off = 4 + a_mask.lowerThan(a).?;
                 const b_mask = toMask(set[t2off]);
                 if (b_mask.lowerThan(b)) |b_count| {
@@ -558,16 +576,23 @@ pub const RuneSet = struct {
                         const a_count = self.countA();
                         return a_count + popCountSlice(set[4..t2off]) + b_count;
                     }
-                } else return null;
-                const c = codeunit(slice[2]);
-                if (c.kind != .follow) return null;
+                } else {
+                    cursor.* += nB - 1;
+                    return null;
+                }
+                cursor.* += 1;
+                const c = codeunit(slice[cursor.*]);
+                if (c.kind != .follow) {
+                    cursor.* += nB - 2;
+                    return null;
+                }
                 const t3off = self.t3offsetFor(t2off, b);
                 const c_mask = self.maskAt(t3off);
                 const maybe_c_count = c_mask.lowerThan(c);
                 if (maybe_c_count) |c_count| {
                     if (nB == 3) {
                         const ab_count = self.countA() + self.countB();
-                        // This one is a big tricky, we need the three-byte slice:
+                        // This one is a bit tricky, we need the three-byte slice:
                         const t3c_slice = self.t3_3c_slice().?;
                         // And the offset one past that:
                         const t3c_off = t3off + 1 - self.t3_3c_start();
@@ -575,8 +600,13 @@ pub const RuneSet = struct {
                         const c_after = popCountSlice(t3c_slice[t3c_off..]);
                         return ab_count + c_count + c_after;
                     }
-                } else return null;
-                const d = codeunit(slice[3]);
+                } else {
+                    cursor.* += nB - 2;
+                    return null;
+                }
+                cursor.* += 1;
+                const d = codeunit(slice[cursor.*]);
+                cursor.* += 1;
                 if (d.kind != .follow) return null;
                 const t4off = self.t4offsetFor(t3off, c);
                 const d_mask = self.maskAt(t4off);
