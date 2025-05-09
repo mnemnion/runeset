@@ -58,6 +58,7 @@ pub fn build(b: *std.Build) void {
     });
 
     ztap_unit_tests.root_module.addOptions("config", options);
+
     const run_ztap_tests = b.addRunArtifact(ztap_unit_tests);
     run_ztap_tests.has_side_effects = true;
     b.installArtifact(ztap_unit_tests);

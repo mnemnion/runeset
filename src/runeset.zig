@@ -475,6 +475,27 @@ pub const RuneSet = struct {
         return matchOneDirectAssumeValid(self.body, slice);
     }
 
+    /// Matches one rune at `cursor`.  The string does not have to be pre-validated,
+    /// but for performance reasons, truncated codepoints may cause some bytes to be
+    /// skipped.  The cursor will be advanced to the next (possible) codepoint, and
+    /// user code must ensure it remains within the range of `slice`.  Note that a
+    /// truncation at the end of the slice might put the cursor further than
+    /// `slice.len` over the limit.
+    pub fn matchOneCursor(self: RuneSet, slice: []const u8, cursor: *usize) bool {
+        return matchOneCursorImpl(self.body, slice, cursor);
+    }
+
+    /// Matches one rune at `cursor`.  Asserts that the string is valid.  The cursor
+    /// will be advanced to the next codepoint, and user code must ensure it remains
+    /// within the range of `slice`.
+    pub fn matchOneCursorAssumeValid(
+        self: RuneSet,
+        slice: []const u8,
+        cursor: *usize,
+    ) bool {
+        return matchOneCursorAssumeValidImpl(self.body, slice, cursor);
+    }
+
     /// Match as many runes as possible starting from the beginning of
     /// the slice.  Returns the number of bytes matched.
     /// Safe to use on invalid UTF-8, returning `null` if any is found.
@@ -509,9 +530,9 @@ pub const RuneSet = struct {
     }
 
     /// Matches as many bytes as it can in `slice`, returning the number
-    /// of bytes matched.  `slice` must be valid UTF-8.  For a discussion
-    /// of the consequences of violating this assumption, see
-    /// `RuneSet.matchOneAssumeValid`.
+    /// of bytes (not codepoints) matched.  `slice` must be valid UTF-8.
+    /// For a discussion of the consequences of violating this assumption,
+    /// see `RuneSet.matchOneAssumeValid`.
     pub fn matchManyAssumeValid(self: RuneSet, slice: []const u8) usize {
         var idx: usize = 0;
         while (idx < slice.len) {
@@ -521,6 +542,19 @@ pub const RuneSet = struct {
             idx += nBytes;
         }
         return idx;
+    }
+
+    /// Counts the number of matches in the slice.  Asserts that the slice
+    /// is valid.  No potentially-invalid version of this function exists.
+    pub fn countMatches(self: RuneSet, slice: []const u8) usize {
+        var count: usize = 0;
+        var cursor: usize = 0;
+        while (cursor < slice.len) {
+            if (self.matchOneCursorAssumeValid(slice, &cursor)) {
+                count += 1;
+            }
+        }
+        return count;
     }
 
     /// Match a codepoint at slice, returning its lexicographical order
@@ -535,7 +569,7 @@ pub const RuneSet = struct {
     /// set, starting from 0, when a match is made.  Returns null for no match,
     /// including ill-formed sequences.  This will advance the cursor to the next
     /// potential match, or to `slice.len`; when the input is valid UTF-8, this will
-    /// be the start of the next codepoint, unless the cursor is off the string.
+    /// be the start of the next codepoint, unless the cursor is at `slice.len`.
     pub fn ordinalMatchCursor(self: RuneSet, slice: []const u8, cursor: *usize) ?usize {
         const set = self.body;
         if (slice.len == 0) return null;
@@ -582,7 +616,7 @@ pub const RuneSet = struct {
                 }
                 cursor.* += 1;
                 const c = codeunit(slice[cursor.*]);
-                if (c.kind != .follow) {
+                if (c.kind != .follow or self.noThreeBytes()) {
                     cursor.* += nB - 2;
                     return null;
                 }
@@ -607,7 +641,7 @@ pub const RuneSet = struct {
                 cursor.* += 1;
                 const d = codeunit(slice[cursor.*]);
                 cursor.* += 1;
-                if (d.kind != .follow) return null;
+                if (d.kind != .follow or self.noFourBytes()) return null;
                 const t4off = self.t4offsetFor(t3off, c);
                 const d_mask = self.maskAt(t4off);
                 if (d_mask.lowerThan(d)) |d_count| {
@@ -2594,6 +2628,141 @@ fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
             if (d_mask.isIn(d)) return 4 else return 0;
         },
     }
+}
+
+inline fn matchOneCursorImpl(set: []const u64, str: []const u8, cursor: *usize) bool {
+    const a = codeunit(str[cursor.*]);
+    cursor += 1;
+    switch (a.kind) {
+        .follow => {
+            return false;
+        },
+        .low => {
+            const mask = toMask(set[LOW]);
+            if (mask.isIn(a))
+                return true
+            else
+                return false;
+        },
+        .hi => {
+            const mask = toMask(set[HI]);
+            if (mask.isIn(a))
+                return true
+            else
+                return false;
+        },
+        .lead => {
+            const nB = a.nMultiBytes() orelse return false;
+            assert(nB > 1);
+            if (nB > str.len) return false;
+            const a_mask = toMask(set[LEAD]);
+            if (!a_mask.isIn(a)) return false;
+            const b = codeunit(str[cursor.*]);
+            if (b.kind != .follow) return false;
+            cursor += 1;
+            const b_loc = 4 + a_mask.lowerThan(a).?;
+            const b_mask = toMask(set[b_loc]);
+            if (!b_mask.isIn(b)) {
+                // Handle 3 and 4 byte characters
+                cursor.* += nB - 2;
+                return false;
+            }
+            if (nB == 2) return true;
+            const t3_off = 4 + @popCount(set[LEAD]);
+            const c = codeunit(str[cursor.*]);
+            if (c.kind != .follow) return false;
+            cursor += 1;
+            // Slice is safe because we know the T2 span has at least one word.
+            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
+            const c_loc = t3_off + c_off;
+            const c_mask = toMask(set[c_loc]);
+            if (!c_mask.isIn(c)) {
+                // Handle four byte characters
+                cursor.* += nB - 3;
+                return false;
+            }
+            if (nB == 3) return true;
+            const d_off = c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
+            const d_loc = set[T4_OFF] + d_off;
+            const d = codeunit(str[cursor.*]);
+            if (d.kind != .follow) return null;
+            cursor.* += 1;
+            const d_mask = toMask(set[d_loc]);
+            if (d_mask.isIn(d)) {
+                return true;
+            } else {
+                return false;
+            }
+        },
+    }
+    unreachable;
+}
+
+inline fn matchOneCursorAssumeValidImpl(set: []const u64, str: []const u8, cursor: *usize) bool {
+    const a = codeunit(str[cursor.*]);
+    cursor.* += 1;
+    switch (a.kind) {
+        .follow => return false,
+        .low => {
+            const mask = toMask(set[LOW]);
+            if (mask.isIn(a))
+                return true
+            else
+                return false;
+        },
+        .hi => {
+            const mask = toMask(set[HI]);
+            if (mask.isIn(a))
+                return true
+            else
+                return false;
+        },
+        .lead => {
+            const nB = a.nMultiBytes().?;
+            assert(nB > 1);
+            assert(nB + cursor.* - 1 <= str.len);
+            const new_cursor = cursor.* + nB;
+            const a_mask = toMask(set[LEAD]);
+            if (!a_mask.isIn(a)) {
+                cursor.* = new_cursor;
+                return false;
+            }
+            const b = codeunit(str[cursor.*]);
+            assert(b.kind == .follow);
+            const b_loc = 4 + a_mask.lowerThan(a).?;
+            const b_mask = toMask(set[b_loc]);
+            if (!b_mask.isIn(b)) {
+                cursor.* = new_cursor;
+                return false;
+            }
+            cursor.* += 1;
+            if (nB == 2) return true;
+            const t3_off = 4 + @popCount(set[LEAD]);
+            const c = codeunit(str[cursor.*]);
+            assert(c.kind == .follow);
+            // Slice is safe because we know the T2 span has at least one word.
+            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
+            const c_loc = t3_off + c_off;
+            const c_mask = toMask(set[c_loc]);
+            if (!c_mask.isIn(c)) {
+                cursor.* = new_cursor;
+                return false;
+            }
+            cursor.* += 1;
+            if (nB == 3) return true;
+            const d_off = c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
+            const d_loc = set[T4_OFF] + d_off;
+            const d = codeunit(str[cursor.*]);
+            cursor.* += 1;
+            assert(d.kind == .follow);
+            const d_mask = toMask(set[d_loc]);
+            if (d_mask.isIn(d))
+                return true
+            else
+                return false;
+        },
+    }
+    unreachable;
 }
 
 /// Count non-zero members of word slice.

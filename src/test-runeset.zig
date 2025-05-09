@@ -172,6 +172,9 @@ fn verifyLRstringsData(s: LRstrings, alloc: Allocator) !void {
     try expectEqual(s.r.len, setAll.matchMany(s.r).?);
     try testMatchNone(setL, s.r);
     try testMatchNone(setR, s.l);
+    try expectEqual(setL.runeCount(), setL.countMatches(s.l));
+    try expectEqual(setR.runeCount(), setR.countMatches(s.r));
+    try expectEqual(0, setR.countMatches(s.l));
     try expect(setL.subsetOf(setAll));
     try expect(setR.subsetOf(setAll));
     try expect(!setAll.subsetOf(setL));
@@ -459,6 +462,8 @@ test "coverage cases" {
     const allocator = std.testing.allocator;
     const setGreek = try RuneSet.createFromConstString(greek.str, allocator);
     defer setGreek.deinit(allocator);
+    const setMath = try RuneSet.createFromConstString(math.str, allocator);
+    defer setMath.deinit(allocator);
     var out_array = std.ArrayList(u8).init(allocator);
     defer out_array.deinit();
     var writer = out_array.writer();
@@ -479,8 +484,12 @@ test "coverage cases" {
     try expectEqual(null, setGreek.t3slice());
     // invalid follow byte
     try expectEqual(null, setGreek.matchOne("\x9f"));
+    try expectEqual(null, setGreek.matchMany("\x9f"));
     try expectEqual(null, setGreek.ordinalMatch("\x9f"));
     try expectEqual(0, setGreek.matchOneAssumeValid("\x9f"));
+    // Invalid non-follow byte
+    try expectEqual(null, setGreek.ordinalMatch("\xceB"));
+    try expectEqual(null, setMath.ordinalMatch("\xe2\x88Q"));
     // No slice
     try expectEqual(null, setGreek.t3_3c_slice());
     const setABC = try RuneSet.createFromConstString("abc", allocator);
@@ -494,11 +503,6 @@ test "coverage cases" {
     try expectError(error.InvalidUnicode, RuneSet.createFromConstString("abc\xf0\x9f", allocator));
     // incomplete multibyte
     try expectError(error.InvalidUnicode, RuneSet.createFromConstString("λθ⌘\xf0abcde", allocator));
-}
-
-// Inline tests of runeset.zig and all tests of element.zig
-test {
-    std.testing.refAllDecls(@This());
 }
 
 //| Test Data
@@ -534,11 +538,11 @@ test "data integrity" {
     try std.testing.expectEqualStrings(pua_A_chunk.str, pua_A_feather.str);
 }
 
-const t_ext = @import("test-data-ext.zig");
-const fuzz = @import("fuzz.zig");
+const more_tests = struct {
+    const t_ext = @import("test-data-ext.zig");
+    const fuzz = @import("fuzz.zig");
 
-test "extended random test data" {
-    if (config.test_more) {
+    test "extended random test data" {
         const allocator = std.testing.allocator;
         const testudo = t_ext.mucho_testo[0..];
         var i: usize = 0;
@@ -547,11 +551,20 @@ test "extended random test data" {
             try verifyLRSets(t, allocator);
         }
     }
-}
 
-test "fuzz set creation" {
-    if (config.test_more) {
+    test "fuzz set creation" {
         const allocator = std.testing.allocator;
         try fuzz.bruteFuzzAndIgnorance(allocator);
     }
+};
+
+comptime {
+    if (config.test_more) {
+        _ = more_tests;
+    }
+}
+
+// Inline tests of runeset.zig and all tests of element.zig
+comptime {
+    std.testing.refAllDecls(@This());
 }

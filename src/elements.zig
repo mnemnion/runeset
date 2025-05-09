@@ -637,6 +637,7 @@ pub const Mask = struct {
         self.m &= ~cu.inMask();
     }
 
+    // NOTE: This is not used anywhere, at least not yet (it is tested).
     /// Add a range of CodeUnits to a Mask.
     /// Caller guarantees that the range is ordered, and
     /// that the bytes are of the same `.kind`.
@@ -1069,6 +1070,7 @@ test "invalid Rune tests" {
     try expectEqual(null, Rune.fromSlice("\xe0\x80\x98"));
     // too high
     try expectEqual(null, Rune.fromSlice("\xf4\x90\x82\x83"));
+    try expectEqual(null, Rune.fromSlice("\xf4\x83\x82B"));
     try expectEqual(null, Rune.fromSlice("\xfa\x90\x82\x83"));
     try expectError(
         error.InvalidUnicode,
@@ -1121,6 +1123,9 @@ test "invalid Rune tests" {
     const badTooHigh2 = Rune{ .a = 0xf4, .b = 0x90, .c = 0xa0, .d = 0xa0 };
     try expectEqual(false, badTooHigh2.isCodepointAnyRune());
     try expectEqual(false, badTooHigh2.isScalarValueAnyRune());
+    const badTooHigh3 = Rune{ .a = 0xf4, .b = 0x84, .c = 0xa0, .d = 'D' };
+    try expectEqual(false, badTooHigh3.isCodepointAnyRune());
+    try expectEqual(false, badTooHigh3.isScalarValueAnyRune());
     const badOverLong1 = Rune{ .a = 0xe0, .b = 0x80, .c = 0x90, .d = 0 };
     try expectEqual(false, badOverLong1.isCodepointAnyRune());
     try expectEqual(false, badOverLong1.isScalarValueAnyRune());
