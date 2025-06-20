@@ -186,7 +186,10 @@ pub const Rune = packed struct(u32) {
                                 return null;
                         },
                         0xf0 => {
-                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                            if (codeunit(slice[1]).kind == .follow and
+                                codeunit(slice[2]).kind == .follow and
+                                codeunit(slice[3]).kind == .follow)
+                            {
                                 // Omit overlong encoding.
                                 if (slice[1] < 0x90) {
                                     return null;
@@ -200,7 +203,10 @@ pub const Rune = packed struct(u32) {
                             } else return null;
                         },
                         0xf1...0xf3 => {
-                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                            if (codeunit(slice[1]).kind == .follow and
+                                codeunit(slice[2]).kind == .follow and
+                                codeunit(slice[3]).kind == .follow)
+                            {
                                 return Rune{
                                     .a = slice[0],
                                     .b = slice[1],
@@ -210,7 +216,10 @@ pub const Rune = packed struct(u32) {
                             } else return null;
                         },
                         0xf4 => {
-                            if (codeunit(slice[1]).kind == .follow and codeunit(slice[2]).kind == .follow and codeunit(slice[3]).kind == .follow) {
+                            if (codeunit(slice[1]).kind == .follow and
+                                codeunit(slice[2]).kind == .follow and
+                                codeunit(slice[3]).kind == .follow)
+                            {
                                 // Omit values without an equivalent codepoint.
                                 if (slice[1] > 0x8f) {
                                     return null;
@@ -470,7 +479,10 @@ pub const Rune = packed struct(u32) {
                     return false;
             },
             0xf0 => {
-                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
+                if (codeunit(b).kind == .follow and
+                    codeunit(c).kind == .follow and
+                    codeunit(d).kind == .follow)
+                {
                     // Omit overlong encoding.
                     if (b < 0x90) {
                         return false;
@@ -482,14 +494,20 @@ pub const Rune = packed struct(u32) {
                 }
             },
             0xf1...0xf3 => {
-                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
+                if (codeunit(b).kind == .follow and
+                    codeunit(c).kind == .follow and
+                    codeunit(d).kind == .follow)
+                {
                     return true;
                 } else {
                     return false;
                 }
             },
             0xf4 => {
-                if (codeunit(b).kind == .follow and codeunit(c).kind == .follow and codeunit(d).kind == .follow) {
+                if (codeunit(b).kind == .follow and
+                    codeunit(c).kind == .follow and
+                    codeunit(d).kind == .follow)
+                {
                     // Omit values without an equivalent codepoint.
                     if (b > 0x8f) {
                         return false;
@@ -556,13 +574,21 @@ pub const Rune = packed struct(u32) {
             }
         } else if (rune.a == 0xf0) {
             // 4-byte sequence: F0 90..BF 80..BF 80..BF
-            return (rune.b >= 0x90 and rune.b <= 0xbf) and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
+            return (rune.b >= 0x90 and
+                rune.b <= 0xbf) and
+                (rune.c & 0xc0) == 0x80 and
+                (rune.d & 0xc0) == 0x80;
         } else if (rune.a >= 0xf1 and rune.a <= 0xf3) {
             // 4-byte sequence: F1..F3 80..BF 80..BF 80..BF
-            return (rune.b & 0xc0) == 0x80 and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
+            return (rune.b & 0xc0) == 0x80 and
+                (rune.c & 0xc0) == 0x80 and
+                (rune.d & 0xc0) == 0x80;
         } else if (rune.a == 0xf4) {
             // 4-byte sequence: F4 80..8F 80..BF 80..BF
-            return (rune.b >= 0x80 and rune.b <= 0x8f) and (rune.c & 0xc0) == 0x80 and (rune.d & 0xc0) == 0x80;
+            return (rune.b >= 0x80 and
+                rune.b <= 0x8f) and
+                (rune.c & 0xc0) == 0x80 and
+                (rune.d & 0xc0) == 0x80;
         } else {
             return false;
         }

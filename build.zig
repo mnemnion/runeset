@@ -48,13 +48,18 @@ pub fn build(b: *std.Build) void {
     run_lib_unit_tests.has_side_effects = true;
 
     // ZTap test runner step.
+    const ztap_dep = b.dependency("ztap", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const ztap_unit_tests = b.addTest(.{
         .name = "ztap-run",
         .root_source_file = b.path("src/test-runeset.zig"),
         .target = target,
         .optimize = optimize,
         .filters = test_filters,
-        .test_runner = .{ .path = b.path("src/ztap-runner.zig"), .mode = .simple },
+        .test_runner = .{ .path = ztap_dep.namedLazyPath("runner"), .mode = .simple },
     });
 
     ztap_unit_tests.root_module.addOptions("config", options);
@@ -63,12 +68,7 @@ pub fn build(b: *std.Build) void {
     run_ztap_tests.has_side_effects = true;
     b.installArtifact(ztap_unit_tests);
 
-    if (b.lazyDependency("ztap", .{
-        .target = target,
-        .optimize = optimize,
-    })) |ztap_dep| {
-        ztap_unit_tests.root_module.addImport("ztap", ztap_dep.module("ztap"));
-    }
+    ztap_unit_tests.root_module.addImport("ztap", ztap_dep.module("ztap"));
 
     const ztap_step = b.step("ztap", "Run ZTap unit tests");
     ztap_step.dependOn(&run_ztap_tests.step);

@@ -2264,7 +2264,7 @@ pub const RuneSetIterator = struct {
 ///
 /// The string must have only valid utf-8, or this function will return
 /// an error.
-fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, OutOfMemory }![]u64 {
+inline fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, OutOfMemory }![]u64 {
     // The header handles all ASCII and lead bytes.  The fourth word
     // defines the offset into T4, which is zero unless the set contains
     // four-byte characters.
@@ -2338,7 +2338,9 @@ fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUnicode, 
         switch (cu.kind) {
             // This is now impossible by construction, we
             // filtered all leading .low and .hi, and would
-            // have bailed on a .follow
+            // have bailed on a .follow.  The only remaining risk
+            // is truncation, which we detect by checking for non-
+            // follow bytes before adding them to a mask.
             .low, .hi, .follow => unreachable,
             .lead => {
                 const nBytes = cu.nMultiBytes();
@@ -2576,6 +2578,69 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
     }
 }
 
+/// Lookup table mapping bytes to the amount of bytes taken
+/// by a valid codepoint which leads with that byte, or one.
+const advance_by: [256]u8 = .{0} ** 256;
+
+comptime {
+    for (0..256) |busize| {
+        const b: u8 = @intCast(busize);
+        advance_by[b] = codeunit(b).nBytes() orelse 1;
+    }
+}
+
+/// Match one codepoint against the set using a SIMD accelerated fast match
+/// for the first byte.  Advance the cursor by the assumed number of bytes
+/// needed for the code point, as indicated by the lead byte, or by one
+/// byte for invalid lead byte values.  This can be more efficient when
+/// called in a loop on hardware which supports SIMD operations of at
+/// least 256 bits.
+fn matchOneVectorized(set: []const u64, str: []const u8, cursor: *usize) bool {
+    const a = str[cursor.*];
+    const cur = cursor.*;
+    const nB = advance_by[a];
+    cursor.* += nB;
+    assert(cursor.* <= str.len); // Truncation check
+    const h_mask: [4]u64 = .{ set[LOW], set[HI], 0, set[LEAD] };
+    const v_mask: @Vector(256, bool) = @bitCast(h_mask);
+    const head_mask: @Vector(256, bool) = @splat(0);
+    head_mask[a] = true;
+    if (!@reduce(.Or, v_mask & head_mask)) {
+        return false;
+    }
+    switch (a) {
+        0...0x79 => return true,
+        0x80...0xbf => unreachable,
+        else => {
+            // Rest of the owl.
+            const b = codeunit(str[cur + 1]);
+            if (b.kind != .follow) return false;
+            const b_loc = 4 + toMask(set[LEAD]).lowerThan(codeunit(a));
+            const b_mask = toMask(set[b_loc]);
+            if (!b_mask.isIn(b)) return false;
+            if (nB == 2) return true;
+            const t3_off = 4 + @popCount(set[LEAD]);
+            const c = codeunit(str[cur + 2]);
+            if (c.kind != .follow) return false;
+            // Slice is safe because we know the T2 span has at least one word.
+            const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
+            const c_loc = t3_off + c_off;
+            const c_mask = toMask(set[c_loc]);
+            if (!c_mask.isIn(c)) return false;
+            if (nB == 3) return true;
+            const d_off = c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
+            const d_loc = set[T4_OFF] + d_off;
+            const d = codeunit(str[cur + 3]);
+            if (d.kind != .follow) return false;
+            const d_mask = toMask(set[d_loc]);
+            if (d_mask.isIn(d)) return true else {
+                return false;
+            }
+        },
+    }
+    unreachable;
+}
+
 /// Match one codepoint against the set, returning the number of bytes
 /// matched.  This performs no validation, meaning that invalid unicode
 /// can return bogus results.  Truncated UTF-8 at the end of a buffer
@@ -2776,7 +2841,7 @@ inline fn nonZeroCount(words: []const u64) usize {
 }
 
 /// Sum of @popCount of all words in region.
-fn popCountSlice(region: []const u64) usize {
+inline fn popCountSlice(region: []const u64) usize {
     var ct: usize = 0;
     for (region) |w| ct += @popCount(w);
     return ct;
