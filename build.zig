@@ -5,21 +5,14 @@ pub fn build(b: *std.Build) void {
 
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "runeset",
-        .root_source_file = b.path("src/runeset.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-
-    b.installArtifact(lib);
-
     // Export as module to be available for @import("runeset") on user site
-    _ = b.addModule("runeset", .{
+    const runeset_mod = b.addModule("runeset", .{
         .root_source_file = b.path("src/runeset.zig"),
         .target = target,
         .optimize = optimize,
     });
+
+    _ = runeset_mod;
 
     const options = b.addOptions();
     if (b.option(bool, "test-more", "run more extensive tests") orelse false) {
@@ -28,18 +21,28 @@ pub fn build(b: *std.Build) void {
         options.addOption(bool, "test_more", false);
     }
 
+    options.addOption(
+        bool,
+        "no_fuzz",
+        b.option(bool, "no-fuzz", "don't fuzz for test_more") orelse false,
+    );
+
     const test_filters: []const []const u8 = b.option(
         []const []const u8,
         "test-filter",
         "Skip tests that do not match any of the specified filters",
     ) orelse &.{};
 
-    // Creates a step for unit testing. This only builds the test executable
-    // but does not run it.
-    const lib_unit_tests = b.addTest(.{
+    const runeset_test_mod = b.addModule("runeset", .{
         .root_source_file = b.path("src/test-runeset.zig"),
         .target = target,
         .optimize = optimize,
+    });
+
+    // Creates a step for unit testing. This only builds the test executable
+    // but does not run it.
+    const lib_unit_tests = b.addTest(.{
+        .root_module = runeset_test_mod,
         .filters = test_filters,
     });
 
@@ -55,9 +58,7 @@ pub fn build(b: *std.Build) void {
 
     const ztap_unit_tests = b.addTest(.{
         .name = "ztap-run",
-        .root_source_file = b.path("src/test-runeset.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = runeset_test_mod,
         .filters = test_filters,
         .test_runner = .{ .path = ztap_dep.namedLazyPath("runner"), .mode = .simple },
     });
@@ -72,12 +73,6 @@ pub fn build(b: *std.Build) void {
 
     const ztap_step = b.step("ztap", "Run ZTap unit tests");
     ztap_step.dependOn(&run_ztap_tests.step);
-
-    b.installDirectory(.{
-        .source_dir = lib.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "../docs",
-    });
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request

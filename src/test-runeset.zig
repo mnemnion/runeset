@@ -464,7 +464,7 @@ test "coverage cases" {
     defer setGreek.deinit(allocator);
     const setMath = try RuneSet.createFromConstString(math.str, allocator);
     defer setMath.deinit(allocator);
-    var out_array = std.ArrayList(u8).init(allocator);
+    var out_array = std.array_list.Managed(u8).init(allocator);
     defer out_array.deinit();
     var writer = out_array.writer();
     try setGreek.serialize(&writer, .private, "greek");
@@ -540,7 +540,6 @@ test "data integrity" {
 
 const more_tests = struct {
     const t_ext = @import("test-data-ext.zig");
-    const fuzz = @import("fuzz.zig");
 
     test "extended random test data" {
         const allocator = std.testing.allocator;
@@ -551,7 +550,10 @@ const more_tests = struct {
             try verifyLRSets(t, allocator);
         }
     }
+};
 
+const fuzz_tests = struct {
+    const fuzz = @import("fuzz.zig");
     test "fuzz set creation" {
         const allocator = std.testing.allocator;
         try fuzz.bruteFuzzAndIgnorance(allocator);
@@ -561,6 +563,9 @@ const more_tests = struct {
 comptime {
     if (config.test_more) {
         _ = more_tests;
+        if (!config.no_fuzz) {
+            _ = fuzz_tests;
+        }
     }
 }
 

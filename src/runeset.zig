@@ -496,6 +496,9 @@ pub const RuneSet = struct {
         return matchOneCursorAssumeValidImpl(self.body, slice, cursor);
     }
 
+    //| TODO: There should be a version of this which only advances when
+    //| a match occurs.
+
     /// Match as many runes as possible starting from the beginning of
     /// the slice.  Returns the number of bytes matched.
     /// Safe to use on invalid UTF-8, returning `null` if any is found.
@@ -1794,6 +1797,19 @@ pub const RuneSet = struct {
         @memcpy(Nbod[T3end..setLen], T4c);
         return RuneSet{ .body = Nbod };
     }
+
+    /// Return the symmetric difference, or disjunction, of L and R: `L ⊕ R`,
+    /// that is, the set of every character which appears in only L or only R.
+    /// Currently this is implemented as `(L ∪ R) \ (L ∩ R)`, however it
+    /// should be possible to customize this into a one-pass operation.  Free
+    /// returned memory with `set.deinit(allocator)`.
+    pub fn setDisjunction(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
+        const intersect = try L.setIntersection(R, allocator);
+        defer intersect.deinit(allocator);
+        const united = try L.setUnion(R, allocator);
+        defer united.deinit(allocator);
+        return united.setDifference(intersect, allocator);
+    }
 };
 
 // An invalid Rune to signal a non-iterated RuneSetIterator.
@@ -2580,14 +2596,14 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
 
 /// Lookup table mapping bytes to the amount of bytes taken
 /// by a valid codepoint which leads with that byte, or one.
-const advance_by: [256]u8 = .{0} ** 256;
-
-comptime {
+const advance_by: [256]u8 = advance: {
+    var advancer: [256]u8 = .{0} ** 256;
     for (0..256) |busize| {
         const b: u8 = @intCast(busize);
-        advance_by[b] = codeunit(b).nBytes() orelse 1;
+        advancer[b] = codeunit(b).nBytes() orelse 1;
     }
-}
+    break :advance advancer;
+};
 
 /// Match one codepoint against the set using a SIMD accelerated fast match
 /// for the first byte.  Advance the cursor by the assumed number of bytes

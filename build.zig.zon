@@ -13,8 +13,9 @@
 
     .dependencies = .{
         .ztap = .{
-            .url = "https://github.com/mnemnion/ztap/archive/refs/tags/v0.9.1.tar.gz",
-            .hash = "ztap-0.9.0-2runTUgvAACuXH1pjXDnnmm0Yz68gcTsH1yIUHWN4aJn",
+            // .url = "https://github.com/mnemnion/ztap/archive/refs/tags/v0.9.1.tar.gz",
+            // .hash = "ztap-0.9.0-2runTUgvAACuXH1pjXDnnmm0Yz68gcTsH1yIUHWN4aJn",
+            .path = "../ztap/",
         },
     },
 

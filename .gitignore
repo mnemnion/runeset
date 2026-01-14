@@ -2,3 +2,5 @@
 /zig-out
 /kcov-output
 /.zig-cache
+/docs
+

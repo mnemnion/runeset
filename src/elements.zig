@@ -664,6 +664,7 @@ pub const Mask = struct {
     }
 
     // NOTE: This is not used anywhere, at least not yet (it is tested).
+
     /// Add a range of CodeUnits to a Mask.
     /// Caller guarantees that the range is ordered, and
     /// that the bytes are of the same `.kind`.
@@ -735,12 +736,12 @@ pub const Mask = struct {
 
     /// Return a forward iterator of elements (u6) in the Mask.
     pub fn iterElements(self: Mask) MaskElements {
-        return MaskElements{ .mask = self };
+        return MaskElements{ .mask = self, .i = @ctz(self.m) };
     }
 
     /// Return a backward iterator of elements (u6) in the Mask.
     pub fn iterElemBack(self: Mask) MaskElemBack {
-        return MaskElemBack{ .mask = self };
+        return MaskElemBack{ .mask = self, .i = 63 - @clz(self.m) };
     }
 
     /// Given a CodeUnit kind, return a forward iterator of the elements
