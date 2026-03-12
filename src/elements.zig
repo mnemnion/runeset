@@ -682,7 +682,7 @@ pub const Mask = struct {
 
     /// Test if a u6 element is present in mask
     pub inline fn isElem(self: Mask, u: u6) bool {
-        return self.m | @as(u64, 1) << u == self.m;
+        return (self.m & (@as(u64, 1) << u)) != 0;
     }
 
     /// Return number of bytes lower than cu.body in mask,
@@ -736,12 +736,12 @@ pub const Mask = struct {
 
     /// Return a forward iterator of elements (u6) in the Mask.
     pub fn iterElements(self: Mask) MaskElements {
-        return MaskElements{ .mask = self, .i = @ctz(self.m) };
+        return MaskElements{ .mask = self };
     }
 
     /// Return a backward iterator of elements (u6) in the Mask.
     pub fn iterElemBack(self: Mask) MaskElemBack {
-        return MaskElemBack{ .mask = self, .i = 63 - @clz(self.m) };
+        return MaskElemBack{ .mask = self };
     }
 
     /// Given a CodeUnit kind, return a forward iterator of the elements
@@ -787,41 +787,26 @@ pub const Mask = struct {
 /// u6 elements of the Mask.
 pub const MaskElements = struct {
     mask: Mask,
-    i: u8 = 0,
+
     pub fn next(itr: *MaskElements) ?u6 {
-        var result: ?u6 = null;
-        while (itr.i < 64) {
-            const e: u6 = @intCast(itr.i);
-            if (itr.mask.isElem(e)) {
-                result = e;
-                itr.i += 1;
-                break;
-            } else {
-                itr.i += 1;
-            }
-        }
-        return result;
+        if (itr.mask.m == 0) return null;
+
+        const e: u6 = @intCast(@ctz(itr.mask.m));
+        itr.mask.m &= itr.mask.m - 1;
+        return e;
     }
 };
 
 /// Reverse Mask iterator, of u6
 pub const MaskElemBack = struct {
     mask: Mask,
-    i: i8 = 63,
 
     pub fn next(itr: *MaskElemBack) ?u6 {
-        var result: ?u6 = null;
-        while (itr.i >= 0) {
-            const e: u6 = @intCast(itr.i);
-            if (itr.mask.isElem(e)) {
-                result = e;
-                itr.i -= 1;
-                break;
-            } else {
-                itr.i -= 1;
-            }
-        }
-        return result;
+        if (itr.mask.m == 0) return null;
+
+        const e: u6 = @intCast(63 - @clz(itr.mask.m));
+        itr.mask.m &= ~(@as(u64, 1) << e);
+        return e;
     }
 };
 
