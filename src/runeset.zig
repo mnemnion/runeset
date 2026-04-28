@@ -2619,7 +2619,7 @@ fn matchOneVectorized(set: []const u64, str: []const u8, cursor: *usize) bool {
     assert(cursor.* <= str.len); // Truncation check
     const h_mask: [4]u64 = .{ set[LOW], set[HI], 0, set[LEAD] };
     const v_mask: @Vector(256, bool) = @bitCast(h_mask);
-    const head_mask: @Vector(256, bool) = @splat(0);
+    var head_mask: @Vector(256, bool) = @splat(false);
     head_mask[a] = true;
     if (!@reduce(.Or, v_mask & head_mask)) {
         return false;
@@ -2628,10 +2628,11 @@ fn matchOneVectorized(set: []const u64, str: []const u8, cursor: *usize) bool {
         0...0x79 => return true,
         0x80...0xbf => unreachable,
         else => {
+            assert(a >= 0xc0);
             // Rest of the owl.
             const b = codeunit(str[cur + 1]);
             if (b.kind != .follow) return false;
-            const b_loc = 4 + toMask(set[LEAD]).lowerThan(codeunit(a));
+            const b_loc = 4 + toMask(set[LEAD]).lowerThan(codeunit(a)).?;
             const b_mask = toMask(set[b_loc]);
             if (!b_mask.isIn(b)) return false;
             if (nB == 2) return true;

@@ -54,6 +54,8 @@ pub fn build(b: *std.Build) void {
     const ztap_dep = b.dependency("ztap", .{
         .target = target,
         .optimize = optimize,
+        .timed = true,
+        .threaded = true,
     });
 
     const ztap_unit_tests = b.addTest(.{
@@ -92,6 +94,4 @@ pub fn build(b: *std.Build) void {
     });
     cov_run.addArtifactArg(lib_unit_tests);
     cov_step.dependOn(&cov_run.step);
-    _ = cov_run.captureStdOut();
-    _ = cov_run.captureStdErr();
 }

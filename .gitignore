@@ -1,7 +1,7 @@
 /zig-cache
+/zig-pkg
 /zig-out
 /kcov-output
 /.zig-cache
 /docs
 /bench
-
