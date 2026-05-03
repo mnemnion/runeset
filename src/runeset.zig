@@ -11,9 +11,8 @@
 //! Additionally, these may be combined using the basic set operations:
 //! union, difference, and intersection, as well as tested for equality.
 //!
-//! Also provided are the CodeUnit, a convenient packed-struct form of
-//! `u8` for representing UTF-8 code units, and Rune, a faster and more
-//! flexible way to work with encoded codepoints.
+//! Also provided is CodeUnit, a convenient packed-struct form of
+//! `u8` for representing UTF-8 code units.
 
 /// Error indicating that a string for construction a RuneSet contains
 /// invalid Unicode.
@@ -1812,44 +1811,60 @@ pub const RuneSet = struct {
     }
 };
 
-// An invalid Rune to signal a non-iterated RuneSetIterator.
-const RUNE_START: u32 = 0xffff_ffff;
+const RUNE_START: [4]u8 = .{ 0xff, 0xff, 0xff, 0xff };
 
-/// Iterate a set's members, one Rune at a time,
-/// with `runeSetIterator.next()`.
+fn runeBytes(a: u8, b: u8, c: u8, d: u8) [4]u8 {
+    return .{ a, b, c, d };
+}
+
+fn runeByteCount(rune: [4]u8) usize {
+    if (rune[1] == 0)
+        return 1
+    else if (rune[2] == 0)
+        return 2
+    else if (rune[3] == 0)
+        return 3
+    else
+        return 4;
+}
+
+/// Iterate a set's members, one byte sequence at a time, with
+/// `runeSetIterator.next()`.  Will contain surrogates and/or overlong
+/// encodings, if the RuneSet has them.
 pub const RuneSetIterator = struct {
-    last: Rune,
+    last: [4]u8,
     idx: usize,
     set: RuneSet,
 
-    /// Create a RuneIterator.
+    /// Create a RuneSetIterator.
     pub fn init(set: RuneSet) RuneSetIterator {
         return RuneSetIterator{
             // sentinel value (never valid)
-            .last = @bitCast(RUNE_START),
+            .last = RUNE_START,
             .idx = 0,
             .set = set,
         };
     }
 
-    //| The challenge here is to maintain the state of the
-    //| iterator, such that transitions between masks are
-    //| efficient.  I've implemented this as a state machine,
-    //| with each transition as its own function.  The unique
-    //| transitions will be inlined.  I've opted to only store
-    //| the index into the last byte, and recalculate when needed.
-    //| Checking test membership needs to construct the same state
-    //| for every successful match, and is very fast.  The most
-    //| frequent changes are the cheapest.
+    //| The challenge here is to maintain the state of the iterator, such that
+    //| transitions between masks are efficient.  I've implemented this as a
+    //| state machine, with each transition as its own function.  The unique
+    //| transitions will be inlined.  I've opted to only store the index into
+    //| the last byte, and recalculate when needed.  Checking test membership
+    //| needs to construct the same state for every successful match, and is
+    //| very fast.  The most frequent changes are the cheapest.
 
-    /// Yield the next Rune, or `null` when the
-    /// set completes.
-    pub fn next(iter: *RuneSetIterator) ?Rune {
-        if (iter.last.rawInt() == RUNE_START) {
+    fn current(iter: *const RuneSetIterator) []const u8 {
+        return iter.last[0..runeByteCount(iter.last)];
+    }
+
+    /// Yield the next byte sequence, or `null` when the set completes.  Will
+    /// contain surrogates and/or overlong encodings, if the RuneSet has them.
+    pub fn next(iter: *RuneSetIterator) ?[]const u8 {
+        if (std.mem.eql(u8, &iter.last, &RUNE_START)) {
             const rune = iter.setup();
             if (rune) |r| {
-                iter.last = r;
-                return iter.last;
+                return r;
             } else {
                 // If this is null, no need to reset.
                 return null;
@@ -1857,7 +1872,7 @@ pub const RuneSetIterator = struct {
         }
         // Note: the resulting rune may be of up to four bytes,
         // regardless of which switch prong is taken.
-        const rune = switch (iter.last.byteCount()) {
+        const rune = switch (runeByteCount(iter.last)) {
             1 => iter.ascii(),
             2 => iter.bRune(),
             3 => iter.cRune(),
@@ -1873,40 +1888,30 @@ pub const RuneSetIterator = struct {
         }
     }
 
-    /// Reset the iterator to start with the first Rune.
+    /// Reset the iterator to start with the first sequence.
     pub fn reset(iter: *RuneSetIterator) void {
-        iter.last = @bitCast(RUNE_START);
+        iter.last = RUNE_START;
         iter.idx = 0;
     }
 
     /// Set up a fresh RuneSetIterator.
-    fn setup(iter: *RuneSetIterator) ?Rune {
+    fn setup(iter: *RuneSetIterator) ?[]const u8 {
         // Set up the RuneSetIterator, and return when possible.
         assert(iter.idx == LOW);
         var maybe_a = iter.set.maskAt(LOW).first(.low);
         if (maybe_a) |a| {
             // Low ASCII
-            iter.last = Rune{
-                .a = a.byte(),
-                .b = 0,
-                .c = 0,
-                .d = 0,
-            };
+            iter.last = runeBytes(a.byte(), 0, 0, 0);
             iter.idx = LOW;
-            return iter.last;
+            return iter.current();
         } else {
             assert(iter.set.body[LOW] == 0);
             maybe_a = iter.set.maskAt(HI).first(.hi);
             if (maybe_a) |a| {
                 // High ASCII
-                iter.last = Rune{
-                    .a = a.byte(),
-                    .b = 0,
-                    .c = 0,
-                    .d = 0,
-                };
+                iter.last = runeBytes(a.byte(), 0, 0, 0);
                 iter.idx = HI;
-                return iter.last;
+                return iter.current();
             } else {
                 // Something multi-byte (maybe).
                 return iter.setupHi();
@@ -1916,7 +1921,7 @@ pub const RuneSetIterator = struct {
 
     /// Set up multi-byte iteration (whether fresh,
     /// or after ASCII completes).
-    fn setupHi(iter: *RuneSetIterator) ?Rune {
+    fn setupHi(iter: *RuneSetIterator) ?[]const u8 {
         assert(iter.idx <= LEAD);
         const maybe_a = iter.set.maskAt(LEAD).first(.lead);
         if (maybe_a) |a| {
@@ -1924,14 +1929,9 @@ pub const RuneSetIterator = struct {
             const T2off = iter.set.t2offsetFor(a);
             const b = iter.set.maskAt(T2off).first(.follow).?;
             if (nB == 2) {
-                iter.last = Rune{
-                    .a = a.byte(),
-                    .b = b.byte(),
-                    .c = 0,
-                    .d = 0,
-                };
+                iter.last = runeBytes(a.byte(), b.byte(), 0, 0);
                 iter.idx = T2off;
-                return iter.last;
+                return iter.current();
             }
             assert(iter.set.body[LEAD] & MASK_OUT_TWO != 0);
             // Since we're setting up, c is at the end of T3:
@@ -1939,14 +1939,9 @@ pub const RuneSetIterator = struct {
             assert(T3off == iter.set.t3offsetFor(T2off, b));
             const c = iter.set.maskAt(T3off).first(.follow).?;
             if (nB == 3) {
-                iter.last = Rune{
-                    .a = a.byte(),
-                    .b = b.byte(),
-                    .c = c.byte(),
-                    .d = 0,
-                };
+                iter.last = runeBytes(a.byte(), b.byte(), c.byte(), 0);
                 iter.idx = T3off;
-                return iter.last;
+                return iter.current();
             }
             assert(nB == 4);
             assert(iter.set.body[LEAD] & MASK_IN_FOUR != 0);
@@ -1957,19 +1952,14 @@ pub const RuneSetIterator = struct {
             // Understand why this is true, and you understand the RuneSet.
             assert(T4off == iter.set.t4offsetFor(T3off, c));
             const d = iter.set.maskAt(T4off).first(.follow).?;
-            iter.last = Rune{
-                .a = a.byte(),
-                .b = b.byte(),
-                .c = c.byte(),
-                .d = d.byte(),
-            };
+            iter.last = runeBytes(a.byte(), b.byte(), c.byte(), d.byte());
             iter.idx = T4off;
-            return iter.last;
+            return iter.current();
         } else {
             // Empty set.
             assert(iter.set.body[LEAD] == 0);
             assert(iter.set.body[T4_OFF] == 0);
-            assert(iter.last.rawInt() == RUNE_START or iter.last.byteCount() == 1);
+            assert(std.mem.eql(u8, &iter.last, &RUNE_START) or runeByteCount(iter.last) == 1);
             assert(iter.idx <= LEAD);
             iter.reset();
             return null;
@@ -1978,30 +1968,20 @@ pub const RuneSetIterator = struct {
 
     /// Try to return an ASCII value, or advance to high
     /// characters, if any.
-    fn ascii(iter: *RuneSetIterator) ?Rune {
-        assert(iter.last.byteCount() == 1);
-        const a_cu = codeunit(iter.last.a);
+    fn ascii(iter: *RuneSetIterator) ?[]const u8 {
+        assert(runeByteCount(iter.last) == 1);
+        const a_cu = codeunit(iter.last[0]);
         const a_next = iter.set.maskAt(iter.idx).after(a_cu);
         if (a_next) |a| {
-            iter.last = Rune{
-                .a = a.byte(),
-                .b = 0,
-                .c = 0,
-                .d = 0,
-            };
-            return iter.last;
+            iter.last = runeBytes(a.byte(), 0, 0, 0);
+            return iter.current();
         }
         iter.idx += 1;
         if (iter.idx == HI) {
             const maybe_a = iter.set.maskAt(HI).first(.hi);
             if (maybe_a) |a| {
-                iter.last = Rune{
-                    .a = a.byte(),
-                    .b = 0,
-                    .c = 0,
-                    .d = 0,
-                };
-                return iter.last;
+                iter.last = runeBytes(a.byte(), 0, 0, 0);
+                return iter.current();
             } else {
                 return iter.setupHi();
             }
@@ -2013,29 +1993,24 @@ pub const RuneSetIterator = struct {
 
     /// Try to return a two-byte character, advancing if
     /// we hit the last bit in a given T2b mask.
-    fn bRune(iter: *RuneSetIterator) ?Rune {
+    fn bRune(iter: *RuneSetIterator) ?[]const u8 {
         // a is set, we need the next b:
         const b_mask = iter.set.maskAt(iter.idx);
-        const maybe_b = b_mask.after(codeunit(iter.last.b));
+        const maybe_b = b_mask.after(codeunit(iter.last[1]));
         if (maybe_b) |b| {
-            iter.last = Rune{
-                .a = iter.last.a,
-                .b = b.byte(),
-                .c = 0,
-                .d = 0,
-            };
-            return iter.last;
+            iter.last = runeBytes(iter.last[0], b.byte(), 0, 0);
+            return iter.current();
         } else {
             return iter.afterBword();
         }
     }
 
-    /// Advance the iterator after the last Rune in a
+    /// Advance the iterator after the last sequence in a
     /// two-byte mask.
-    fn afterBword(iter: *RuneSetIterator) ?Rune {
-        assert(iter.last.byteCount() == 2);
+    fn afterBword(iter: *RuneSetIterator) ?[]const u8 {
+        assert(runeByteCount(iter.last) == 2);
         // next a, if any
-        const maybe_a = toMask(iter.set.body[LEAD]).after(codeunit(iter.last.a));
+        const maybe_a = toMask(iter.set.body[LEAD]).after(codeunit(iter.last[0]));
         if (maybe_a) |a| {
             iter.idx += 1;
             // Same as this:
@@ -2046,40 +2021,25 @@ pub const RuneSetIterator = struct {
             const b = iter.set.maskAt(iter.idx).first(.follow).?;
             switch (a.nMultiBytes().?) {
                 2 => {
-                    iter.last = Rune{
-                        .a = a.byte(),
-                        .b = b.byte(),
-                        .c = 0,
-                        .d = 0,
-                    }; // idx is still valid
-                    return iter.last;
+                    iter.last = runeBytes(a.byte(), b.byte(), 0, 0); // idx is still valid
+                    return iter.current();
                 },
                 3, 4 => |nB| {
                     // T3 starts at the end:
                     const T3off = iter.set.t3final();
                     const c = iter.set.maskAt(T3off).first(.follow).?;
                     if (nB == 3) {
-                        iter.last = Rune{
-                            .a = a.byte(),
-                            .b = b.byte(),
-                            .c = c.byte(),
-                            .d = 0,
-                        };
+                        iter.last = runeBytes(a.byte(), b.byte(), c.byte(), 0);
                         iter.idx = T3off;
-                        return iter.last;
+                        return iter.current();
                     } else {
                         // Find T4
                         const T4off = iter.set.body.len - @popCount(iter.set.body[T3off]);
                         assert(T4off == iter.set.t4offsetFor(T3off, c));
                         const d = iter.set.maskAt(T4off).first(.follow).?;
-                        iter.last = Rune{
-                            .a = a.byte(),
-                            .b = b.byte(),
-                            .c = c.byte(),
-                            .d = d.byte(),
-                        };
+                        iter.last = runeBytes(a.byte(), b.byte(), c.byte(), d.byte());
                         iter.idx = T4off;
-                        return iter.last;
+                        return iter.current();
                     }
                 },
                 else => unreachable,
@@ -2090,20 +2050,15 @@ pub const RuneSetIterator = struct {
         }
     }
 
-    /// Try to return a three-byte Rune, advancing if we
+    /// Try to return a three-byte sequence, advancing if we
     /// reach the end of the T3 mask.
-    fn cRune(iter: *RuneSetIterator) ?Rune {
+    fn cRune(iter: *RuneSetIterator) ?[]const u8 {
         // a and b are set, we need the next c:
         const c_mask = iter.set.maskAt(iter.idx);
-        const maybe_c = c_mask.after(codeunit(iter.last.c));
+        const maybe_c = c_mask.after(codeunit(iter.last[2]));
         if (maybe_c) |c| {
-            iter.last = Rune{
-                .a = iter.last.a,
-                .b = iter.last.b,
-                .c = c.byte(),
-                .d = 0,
-            };
-            return iter.last;
+            iter.last = runeBytes(iter.last[0], iter.last[1], c.byte(), 0);
+            return iter.current();
         } else {
             return iter.afterCword();
         }
@@ -2111,27 +2066,22 @@ pub const RuneSetIterator = struct {
 
     /// Advance to the next rune upon returning the last byte
     /// of a given T3 mask.
-    fn afterCword(iter: *RuneSetIterator) ?Rune {
-        assert(iter.last.byteCount() == 3);
+    fn afterCword(iter: *RuneSetIterator) ?[]const u8 {
+        assert(runeByteCount(iter.last) == 3);
         // a and b are known, we need the next b.
-        var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
-        const b_next = iter.set.maskAt(T2off).after(codeunit(iter.last.b));
+        var T2off = iter.set.t2offsetFor(codeunit(iter.last[0]));
+        const b_next = iter.set.maskAt(T2off).after(codeunit(iter.last[1]));
         if (b_next) |b| {
             // Since a hasn't changed, we know it's still a three-byte
             // sequence:
             const T3off = iter.idx - 1;
             assert(T3off == iter.set.t3offsetFor(T2off, b));
             const c = iter.set.maskAt(T3off).first(.follow).?;
-            iter.last = Rune{
-                .a = iter.last.a,
-                .b = b.byte(),
-                .c = c.byte(),
-                .d = 0,
-            };
+            iter.last = runeBytes(iter.last[0], b.byte(), c.byte(), 0);
             iter.idx = T3off;
-            return iter.last;
+            return iter.current();
         } // Otherwise, next a:
-        const a_next = iter.set.maskAt(LEAD).after(codeunit(iter.last.a));
+        const a_next = iter.set.maskAt(LEAD).after(codeunit(iter.last[0]));
         if (a_next) |a| {
             T2off += 1;
             assert(T2off == iter.set.t2offsetFor(a));
@@ -2145,14 +2095,9 @@ pub const RuneSetIterator = struct {
                     if (nB == 3) {
                         assert(iter.set.t3_3c_start() <= T3off);
                         assert(T3off < iter.set.t3end());
-                        iter.last = Rune{
-                            .a = a.byte(),
-                            .b = b.byte(),
-                            .c = c.byte(),
-                            .d = 0,
-                        };
+                        iter.last = runeBytes(a.byte(), b.byte(), c.byte(), 0);
                         iter.idx = T3off;
-                        return iter.last;
+                        return iter.current();
                     } else {
                         // Since we're in afterCword, there are three-byte
                         // sequences, so this test is valid:
@@ -2162,13 +2107,8 @@ pub const RuneSetIterator = struct {
                         iter.idx = iter.set.body.len - @popCount(iter.set.body[T3off]);
                         assert(iter.idx == iter.set.t4offsetFor(T3off, c));
                         const d = iter.set.maskAt(iter.idx).first(.follow).?;
-                        iter.last = Rune{
-                            .a = a.byte(),
-                            .b = b.byte(),
-                            .c = c.byte(),
-                            .d = d.byte(),
-                        };
-                        return iter.last;
+                        iter.last = runeBytes(a.byte(), b.byte(), c.byte(), d.byte());
+                        return iter.current();
                     }
                 },
                 else => unreachable,
@@ -2181,44 +2121,34 @@ pub const RuneSetIterator = struct {
 
     /// Return a four-byte character from the current word,
     /// or advance to the next word.
-    fn dRune(iter: *RuneSetIterator) ?Rune {
+    fn dRune(iter: *RuneSetIterator) ?[]const u8 {
         // a, b, and c, are set, we need the next d:
-        const maybe_d = iter.set.maskAt(iter.idx).after(codeunit(iter.last.d));
+        const maybe_d = iter.set.maskAt(iter.idx).after(codeunit(iter.last[3]));
         if (maybe_d) |d| {
-            iter.last = Rune{
-                .a = iter.last.a,
-                .b = iter.last.b,
-                .c = iter.last.c,
-                .d = d.byte(),
-            };
-            return iter.last;
+            iter.last = runeBytes(iter.last[0], iter.last[1], iter.last[2], d.byte());
+            return iter.current();
         } else {
             return iter.resetToD();
         }
     }
 
-    /// Yield the next Rune of four bytes, should one
+    /// Yield the next sequence of four bytes, should one
     /// happen to exist.
-    fn resetToD(iter: *RuneSetIterator) ?Rune {
-        assert(iter.last.byteCount() == 4);
+    fn resetToD(iter: *RuneSetIterator) ?[]const u8 {
+        assert(runeByteCount(iter.last) == 4);
         // Try for next c.
-        var T2off = iter.set.t2offsetFor(codeunit(iter.last.a));
-        var T3off = iter.set.t3offsetFor(T2off, codeunit(iter.last.b));
-        const maybe_c = iter.set.maskAt(T3off).after(codeunit(iter.last.c));
+        var T2off = iter.set.t2offsetFor(codeunit(iter.last[0]));
+        var T3off = iter.set.t3offsetFor(T2off, codeunit(iter.last[1]));
+        const maybe_c = iter.set.maskAt(T3off).after(codeunit(iter.last[2]));
         if (maybe_c) |c| {
             // Since we're still in the same c mask, increment is valid.
             iter.idx += 1;
             assert(iter.idx == iter.set.t4offsetFor(T3off, c));
             const d = iter.set.maskAt(iter.idx).first(.follow).?;
-            iter.last = Rune{
-                .a = iter.last.a,
-                .b = iter.last.b,
-                .c = c.byte(),
-                .d = d.byte(),
-            };
-            return iter.last;
+            iter.last = runeBytes(iter.last[0], iter.last[1], c.byte(), d.byte());
+            return iter.current();
         } else { // New b needed.
-            const maybe_b = iter.set.maskAt(T2off).after(codeunit(iter.last.b));
+            const maybe_b = iter.set.maskAt(T2off).after(codeunit(iter.last[1]));
             if (maybe_b) |b| {
                 // T3off can be decremented.
                 T3off -= 1; // Equal to this more expensive calculation:
@@ -2231,15 +2161,10 @@ pub const RuneSetIterator = struct {
                 assert(iter.idx == iter.set.t4offsetFor(T3off, c));
                 assert(iter.set.t4offset() <= iter.idx);
                 const d = iter.set.maskAt(iter.idx).first(.follow).?;
-                iter.last = Rune{
-                    .a = iter.last.a,
-                    .b = b.byte(),
-                    .c = c.byte(),
-                    .d = d.byte(),
-                };
-                return iter.last;
+                iter.last = runeBytes(iter.last[0], b.byte(), c.byte(), d.byte());
+                return iter.current();
             } else { // New a needed.
-                const maybe_a = iter.set.maskAt(LEAD).after(codeunit(iter.last.a));
+                const maybe_a = iter.set.maskAt(LEAD).after(codeunit(iter.last[0]));
                 if (maybe_a) |a| {
                     // Increment in T2.
                     T2off += 1;
@@ -2255,13 +2180,8 @@ pub const RuneSetIterator = struct {
                     assert(iter.idx == iter.set.t4offsetFor(T3off, c));
                     assert(iter.set.t4offset() <= iter.idx);
                     const d = iter.set.maskAt(iter.idx).first(.follow).?;
-                    iter.last = Rune{
-                        .a = a.byte(),
-                        .b = b.byte(),
-                        .c = c.byte(),
-                        .d = d.byte(),
-                    };
-                    return iter.last;
+                    iter.last = runeBytes(a.byte(), b.byte(), c.byte(), d.byte());
+                    return iter.current();
                 } else { // No a means we're done.
                     iter.reset();
                     return null;
@@ -2270,7 +2190,7 @@ pub const RuneSetIterator = struct {
         } // end maybe_c
         unreachable;
     }
-}; // end RuneIterator
+}; // end RuneSetIterator
 
 /// Creates the body of a RuneSet from a mutable string, allocating
 /// a (still mutable) []u64 from the allocator and returning it.
@@ -2916,7 +2836,6 @@ const toMask = Mask.toMask;
 pub const CodeUnit = elements.CodeUnit;
 /// codeunit(:u8) creates a CodeUnit
 pub const codeunit = elements.codeunit;
-pub const Rune = elements.Rune;
 
 const testing = std.testing;
 const expect = testing.expect;

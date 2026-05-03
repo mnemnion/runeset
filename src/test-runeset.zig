@@ -17,7 +17,6 @@ pub const runeset = @import("runeset.zig");
 pub const data = @import("test-data.zig");
 
 const RuneSet = runeset.RuneSet;
-const Rune = runeset.Rune;
 const codeunit = elements.codeunit;
 
 const expect = std.testing.expect;
@@ -115,9 +114,8 @@ fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
 
 fn verifySetIteration(set: RuneSet) !void {
     var setIter = set.iterateRunes();
-    // Craft an impossible Rune which is different from the one
-    // we use to mark a fresh iterator
-    var lastRune = Rune{ .a = 0xff, .b = 0xff, .c = 0x00, .d = 0xff };
+    var lastRune: [4]u8 = undefined;
+    var lastRuneLen: usize = 0;
     // Count total bytes seen
     var codeunits: usize = 0;
     // Count total runes seen
@@ -125,16 +123,14 @@ fn verifySetIteration(set: RuneSet) !void {
     while (setIter.next()) |rune| {
         // skipping the first rune, verify that codeunit value is increasing
         if (codeunits > 0) {
-            try expect(lastRune.toCodepoint() catch unreachable < rune.toCodepoint() catch unreachable);
-            try expect(lastRune.rawInt() < rune.rawInt());
+            try expect(std.mem.order(u8, lastRune[0..lastRuneLen], rune) == .lt);
         }
-        codeunits += rune.byteCount();
-        lastRune = rune;
-        const runeArray = rune.toByteArray();
-        const matchedBytes = set.matchOne(&runeArray).?;
-        const byteCount = rune.byteCount();
-        try expectEqual(byteCount, matchedBytes);
-        const order = set.ordinalMatch(&runeArray).?;
+        codeunits += rune.len;
+        @memcpy(lastRune[0..rune.len], rune);
+        lastRuneLen = rune.len;
+        const matchedBytes = set.matchOne(rune).?;
+        try expectEqual(rune.len, matchedBytes);
+        const order = set.ordinalMatch(rune).?;
         try expectEqual(rune_count, order);
         rune_count += 1;
     }
