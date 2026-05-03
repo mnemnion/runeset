@@ -339,7 +339,7 @@ pub const RuneSet = struct {
         if (public == .public) {
             try writer.writeAll("pub ");
         }
-        try writer.print("const {s} = RuneSet{{ .body = &.{{ 0x{d}", .{ name, self.body[0] });
+        try writer.print("const {s} = RuneSet{{ .body = &.{{ 0x{x}", .{ name, self.body[0] });
         for (self.body[1..]) |word| {
             try writer.print(", 0x{x}", .{word});
         }
