@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
         "Skip tests that do not match any of the specified filters",
     ) orelse &.{};
 
-    const runeset_test_mod = b.addModule("runeset", .{
+    const runeset_test_mod = b.createModule(.{
         .root_source_file = b.path("src/test-runeset.zig"),
         .target = target,
         .optimize = optimize,
