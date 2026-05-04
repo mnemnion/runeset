@@ -541,6 +541,95 @@ test "RuneSetMemo matches RuneSet" {
     }
 }
 
+test "RuneSetMemo creates from strings" {
+    const allocator = testing.allocator;
+    const const_memo = try RuneSetMemo.createFromConstString(greek.str, allocator);
+    defer const_memo.deinit(allocator);
+    try expectEqual(greek.str.len, const_memo.matchMany(greek.str).?);
+
+    const mutable = try allocator.alloc(u8, deseret.str.len);
+    defer allocator.free(mutable);
+    @memcpy(mutable, deseret.str);
+    const mutable_memo = try RuneSetMemo.createFromMutableString(mutable, allocator);
+    defer mutable_memo.deinit(allocator);
+    try expectEqual(deseret.str.len, mutable_memo.matchMany(deseret.str).?);
+
+    try expectError(error.InvalidUnicode, RuneSetMemo.createFromConstString("\xff\xff", allocator));
+}
+
+test "RuneSetMemo set operations match RuneSet" {
+    const allocator = testing.allocator;
+    const setL = try RuneSet.createFromConstString(math.l, allocator);
+    defer setL.deinit(allocator);
+    const setR = try RuneSet.createFromConstString(math.r, allocator);
+    defer setR.deinit(allocator);
+    const memoL = try RuneSetMemo.createFromRuneSet(setL, allocator);
+    defer memoL.deinit(allocator);
+    const memoR = try RuneSetMemo.createFromRuneSet(setR, allocator);
+    defer memoR.deinit(allocator);
+
+    const union_set = try setL.setUnion(setR, allocator);
+    defer union_set.deinit(allocator);
+    const union_memo = try memoL.setUnion(memoR, allocator);
+    defer union_memo.deinit(allocator);
+    try expect(union_set.equalTo(union_memo.asRuneSet()));
+    try expectEqual(math.str.len, union_memo.matchMany(math.str).?);
+
+    const diff_set = try union_set.setDifference(setR, allocator);
+    defer diff_set.deinit(allocator);
+    const diff_memo = try union_memo.setDifference(memoR, allocator);
+    defer diff_memo.deinit(allocator);
+    try expect(diff_set.equalTo(diff_memo.asRuneSet()));
+    try expectEqual(math.l.len, diff_memo.matchMany(math.l).?);
+
+    const intersect_set = try union_set.setIntersection(setL, allocator);
+    defer intersect_set.deinit(allocator);
+    const intersect_memo = try union_memo.setIntersection(setL, allocator);
+    defer intersect_memo.deinit(allocator);
+    try expect(intersect_set.equalTo(intersect_memo.asRuneSet()));
+    try expectEqual(math.l.len, intersect_memo.matchMany(math.l).?);
+
+    const disjoint_set = try union_set.setDisjunction(setL, allocator);
+    defer disjoint_set.deinit(allocator);
+    const disjoint_memo = try union_memo.setDisjunction(memoL, allocator);
+    defer disjoint_memo.deinit(allocator);
+    try expect(disjoint_set.equalTo(disjoint_memo.asRuneSet()));
+    try expectEqual(math.r.len, disjoint_memo.matchMany(math.r).?);
+}
+
+test "RuneSetMemo serializes declaration and body" {
+    const allocator = testing.allocator;
+    const set = try RuneSet.createFromConstString(greek.str, allocator);
+    defer set.deinit(allocator);
+    const memo = try RuneSetMemo.createFromRuneSet(set, allocator);
+    defer memo.deinit(allocator);
+
+    var body_array: std.ArrayList(u8) = .empty;
+    defer body_array.deinit(allocator);
+    var body_writer: std.Io.Writer.Allocating = .fromArrayList(allocator, &body_array);
+    try memo.serializeBody(&body_writer.writer);
+    const body = try body_writer.toOwnedSlice();
+    defer allocator.free(body);
+
+    try expect(std.mem.startsWith(u8, body, ".{ .body = &.{ 0x0, 0x0, 0xc000"));
+    try expect(std.mem.indexOf(u8, body, ".offsets = &.{") != null);
+    try expect(std.mem.endsWith(u8, body, " };\n"));
+
+    var serialized_array: std.ArrayList(u8) = .empty;
+    defer serialized_array.deinit(allocator);
+    var serialized_writer: std.Io.Writer.Allocating = .fromArrayList(allocator, &serialized_array);
+    try memo.serialize(&serialized_writer.writer, .public, "greek_memo");
+    const serialized = try serialized_writer.toOwnedSlice();
+    defer allocator.free(serialized);
+
+    const expected = try std.mem.concat(allocator, u8, &.{
+        "pub const greek_memo: RuneSetMemo = ",
+        body,
+    });
+    defer allocator.free(expected);
+    try expectEqualStrings(expected, serialized);
+}
+
 //| Test Data
 //|
 //| An extensive collection of string data, meant to fully exercise the

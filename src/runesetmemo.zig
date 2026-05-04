@@ -8,6 +8,8 @@ const elements = @import("elements.zig");
 const Mask = elements.Mask;
 const codeunit = elements.codeunit;
 const toMask = Mask.toMask;
+const runeset = @import("runeset.zig");
+const RuneSet = runeset.RuneSet;
 
 const LOW = 0;
 const HI = 1;
@@ -32,6 +34,20 @@ pub const RuneSetMemo = struct {
         return createFromBody(set.body, allocator);
     }
 
+    /// Create a RuneSetMemo from a mutable `[]u8`, destroying it in the process.
+    pub fn createFromMutableString(str: []u8, allocator: Allocator) !RuneSetMemo {
+        const set = try RuneSet.createFromMutableString(str, allocator);
+        errdefer set.deinit(allocator);
+        return createTakingBody(set.body, allocator);
+    }
+
+    /// Create a RuneSetMemo from a `[]const u8`.
+    pub fn createFromConstString(str: []const u8, allocator: Allocator) !RuneSetMemo {
+        const set = try RuneSet.createFromConstString(str, allocator);
+        errdefer set.deinit(allocator);
+        return createTakingBody(set.body, allocator);
+    }
+
     /// Create a RuneSetMEmo from a runeset.body, copying the data to a new slice.
     pub fn createFromBody(body: []const u64, allocator: Allocator) !RuneSetMemo {
         const owned_body = try allocator.alloc(u64, body.len);
@@ -53,6 +69,54 @@ pub const RuneSetMemo = struct {
     pub fn deinit(memo: RuneSetMemo, allocator: Allocator) void {
         allocator.free(memo.body);
         allocator.free(memo.offsets);
+    }
+
+    pub fn asRuneSet(memo: RuneSetMemo) RuneSet {
+        return RuneSet{ .body = memo.body };
+    }
+
+    pub fn serialize(memo: RuneSetMemo, writer: anytype, public: RuneSet.Privacy, name: []const u8) !void {
+        if (public == .public) {
+            try writer.writeAll("pub ");
+        }
+        try writer.print("const {s}: RuneSetMemo = ", .{name});
+        try memo.serializeBody(writer);
+    }
+
+    pub fn serializeBody(memo: RuneSetMemo, writer: anytype) !void {
+        try writer.print(".{{ .body = &.{{ 0x{x}", .{memo.body[0]});
+        for (memo.body[1..]) |word| {
+            try writer.print(", 0x{x}", .{word});
+        }
+        try writer.print(" }}, .offsets = &.{{ 0x{x}", .{memo.offsets[0]});
+        for (memo.offsets[1..]) |offset| {
+            try writer.print(", 0x{x}", .{offset});
+        }
+        try writer.writeAll(" } };\n");
+    }
+
+    pub fn setUnion(L: RuneSetMemo, R: anytype, allocator: Allocator) error{OutOfMemory}!RuneSetMemo {
+        var result = try L.asRuneSet().setUnion(normalizeRuneSet(R), allocator);
+        errdefer result.deinit(allocator);
+        return createTakingBody(result.body, allocator);
+    }
+
+    pub fn setDifference(L: RuneSetMemo, R: anytype, allocator: Allocator) error{OutOfMemory}!RuneSetMemo {
+        var result = try L.asRuneSet().setDifference(normalizeRuneSet(R), allocator);
+        errdefer result.deinit(allocator);
+        return createTakingBody(result.body, allocator);
+    }
+
+    pub fn setIntersection(L: RuneSetMemo, R: anytype, allocator: Allocator) error{OutOfMemory}!RuneSetMemo {
+        var result = try L.asRuneSet().setIntersection(normalizeRuneSet(R), allocator);
+        errdefer result.deinit(allocator);
+        return createTakingBody(result.body, allocator);
+    }
+
+    pub fn setDisjunction(L: RuneSetMemo, R: anytype, allocator: Allocator) error{OutOfMemory}!RuneSetMemo {
+        var result = try L.asRuneSet().setDisjunction(normalizeRuneSet(R), allocator);
+        errdefer result.deinit(allocator);
+        return createTakingBody(result.body, allocator);
     }
 
     pub fn matchOne(memo: RuneSetMemo, slice: []const u8) ?usize {
@@ -100,6 +164,17 @@ pub const RuneSetMemo = struct {
         return idx;
     }
 };
+
+fn normalizeRuneSet(set: anytype) RuneSet {
+    const Set = @TypeOf(set);
+    if (Set == RuneSet) {
+        return set;
+    } else if (Set == RuneSetMemo) {
+        return set.asRuneSet();
+    } else {
+        @compileError("expected RuneSet or RuneSetMemo");
+    }
+}
 
 fn buildOffsets(body: []const u64, allocator: Allocator) ![]u16 {
     const t3_start = t3start(body);
