@@ -17,8 +17,10 @@ const LEAD = 2;
 const T4_OFF = 3;
 
 const TWO_MAX = 32;
+const THREE_MAX = 48;
 
 const MASK_IN_TWO: u64 = codeunit(TWO_MAX).hiMask();
+const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 
 /// A RuneSet which memorizes the offset calculations needed for matching
 /// three- and four-byted codepoints.  This makes time-to-match strictly
@@ -60,7 +62,7 @@ pub const RuneSetMemo = struct {
     /// The original RuneSet must not be deinitialized after this operation.
     pub fn createTakingBody(body: []const u64, allocator: Allocator) !RuneSetMemo {
         const owned_offsets = try buildOffsets(body, allocator);
-        return RuneSetMemo{
+        return .{
             .body = body,
             .offsets = owned_offsets,
         };
@@ -71,8 +73,9 @@ pub const RuneSetMemo = struct {
         allocator.free(memo.offsets);
     }
 
+    /// Borrow the body data of the RuneSetMemo as an ordinary RuneSet.
     pub fn asRuneSet(memo: RuneSetMemo) RuneSet {
-        return RuneSet{ .body = memo.body };
+        return .{ .body = memo.body };
     }
 
     pub fn serialize(memo: RuneSetMemo, writer: anytype, public: RuneSet.Privacy, name: []const u8) !void {
@@ -88,9 +91,9 @@ pub const RuneSetMemo = struct {
         for (memo.body[1..]) |word| {
             try writer.print(", 0x{x}", .{word});
         }
-        try writer.print(" }}, .offsets = &.{{ 0x{x}", .{memo.offsets[0]});
+        try writer.print(" }}, .offsets = &.{{ {d}", .{memo.offsets[0]});
         for (memo.offsets[1..]) |offset| {
-            try writer.print(", 0x{x}", .{offset});
+            try writer.print(", {d}", .{offset});
         }
         try writer.writeAll(" } };\n");
     }
@@ -178,23 +181,21 @@ fn normalizeRuneSet(set: anytype) RuneSet {
 
 fn buildOffsets(body: []const u64, allocator: Allocator) ![]u16 {
     const t3_start = t3start(body);
-    const t3_end = t3end(body);
+    const t3_memo_end = t3_3c_start(body);
     const t2_memo_start = t2_3b_start(body);
     const t2_memo_len = t3_start - t2_memo_start;
-    const t3_memo_len = t3_end - t3_start;
-    const offsets = try allocator.alloc(u16, 2 + t2_memo_len + t3_memo_len);
+    const t3_memo_len = t3_memo_end - t3_start;
+    const offsets = try allocator.alloc(u16, 1 + t2_memo_len + t3_memo_len);
     errdefer allocator.free(offsets);
 
-    const t2_offsets_offset = t2_memo_start - 2;
-    offsets[0] = @intCast(t2_offsets_offset);
-    var idx: usize = 2;
+    offsets[0] = @intCast(t2_memo_start - 1);
+    var idx: usize = 1;
     for (t2_memo_start..t3_start) |t2off| {
         offsets[idx] = @intCast(popCountSlice(body[t2off + 1 .. t3_start]));
         idx += 1;
     }
 
-    offsets[1] = @intCast(t3_start - idx);
-    for (t3_start..t3_end) |t3off| {
+    for (t3_start..t3_memo_end) |t3off| {
         offsets[idx] = @intCast(popCountSlice(body[t3_start..t3off]));
         idx += 1;
     }
@@ -206,15 +207,16 @@ inline fn t3start(body: []const u64) usize {
     return 4 + @popCount(body[LEAD]);
 }
 
-inline fn t3end(body: []const u64) usize {
-    return if (body[T4_OFF] == 0)
-        body.len
-    else
-        @intCast(body[T4_OFF]);
-}
-
 inline fn t2_3b_start(body: []const u64) usize {
     return 4 + @popCount(body[LEAD] & MASK_IN_TWO);
+}
+
+inline fn t2_4b_start(body: []const u64) usize {
+    return 4 + @popCount(body[LEAD] & MASK_OUT_FOUR);
+}
+
+inline fn t3_3c_start(body: []const u64) usize {
+    return t3start(body) + popCountSlice(body[t2_4b_start(body)..t3start(body)]);
 }
 
 inline fn t4offset(body: []const u64) usize {
@@ -226,7 +228,7 @@ inline fn t2Memo(offsets: []const u16, t2off: usize) u16 {
 }
 
 inline fn t3Memo(offsets: []const u16, t3off: usize) u16 {
-    return offsets[t3off - offsets[1]];
+    return offsets[t3off - offsets[0]];
 }
 
 fn matchOneDirectly(set: []const u64, offsets: []const u16, str: []const u8) ?usize {
@@ -261,8 +263,9 @@ fn matchOneDirectly(set: []const u64, offsets: []const u16, str: []const u8) ?us
             if (nB == 2) return 2;
             const c = codeunit(str[2]);
             if (c.kind != .follow) return null;
+            const t3_start = t3start(set);
             const c_off = b_mask.higherThan(b).? + t2Memo(offsets, b_loc);
-            const c_loc = t3start(set) + c_off;
+            const c_loc = t3_start + c_off;
             const c_mask = toMask(set[c_loc]);
             if (!c_mask.isIn(c)) return 0;
             if (nB == 3) return 3;
@@ -308,8 +311,9 @@ fn matchOneDirectAssumeValid(set: []const u64, offsets: []const u16, str: []cons
             if (nB == 2) return 2;
             const c = codeunit(str[2]);
             assert(c.kind == .follow);
+            const t3_start = t3start(set);
             const c_off = b_mask.higherThan(b).? + t2Memo(offsets, b_loc);
-            const c_loc = t3start(set) + c_off;
+            const c_loc = t3_start + c_off;
             const c_mask = toMask(set[c_loc]);
             if (!c_mask.isIn(c)) return 0;
             if (nB == 3) return 3;

@@ -91,6 +91,8 @@ fn verifyMemoMatchesSet(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     const memo = try RuneSetMemo.createFromRuneSet(set, alloc);
     defer memo.deinit(alloc);
     try expectEqual(set.body.len, memo.body.len);
+    try expectEqual(expectedMemoOffsetCount(memo), memo.offsets.len);
+    try verifyMemoOffsetsAreBodyRelative(memo);
     try expectEqual(str.len, memo.matchMany(str).?);
     try expectEqual(str.len, memo.matchManyAssumeValid(str));
     try expectEqual(set.matchManyAllowInvalid("\x9fabc"), memo.matchManyAllowInvalid("\x9fabc"));
@@ -103,6 +105,28 @@ fn verifyMemoMatchesSet(str: []const u8, set: RuneSet, alloc: Allocator) !void {
         try expectEqual(set.matchOneAssumeValid(slice), memo.matchOneAssumeValid(slice));
         idx += expected;
     }
+}
+
+fn verifyMemoOffsetsAreBodyRelative(memo: RuneSetMemo) !void {
+    for (memo.offsets[1..]) |offset| {
+        try expect(offset < memo.body.len);
+    }
+}
+
+fn expectedMemoOffsetCount(memo: RuneSetMemo) usize {
+    const t3_start = 4 + @popCount(memo.body[2]);
+    const t2_memo_start = 4 + @popCount(memo.body[2] & codeunit(32).hiMask());
+    const t2_4b_start = 4 + @popCount(memo.body[2] & codeunit(48).hiMask());
+    const t3_memo_end = t3_start + popCountWords(memo.body[t2_4b_start..t3_start]);
+    return 1 + t3_memo_end - t2_memo_start;
+}
+
+fn popCountWords(words: []const u64) usize {
+    var count: usize = 0;
+    for (words) |word| {
+        count += @popCount(word);
+    }
+    return count;
 }
 
 fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
