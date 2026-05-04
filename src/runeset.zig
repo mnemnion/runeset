@@ -2836,6 +2836,7 @@ const toMask = Mask.toMask;
 pub const CodeUnit = elements.CodeUnit;
 /// codeunit(:u8) creates a CodeUnit
 pub const codeunit = elements.codeunit;
+pub const RuneSetMemo = @import("runesetmemo.zig").RuneSetMemo;
 
 const testing = std.testing;
 const expect = testing.expect;

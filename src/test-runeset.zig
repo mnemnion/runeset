@@ -17,6 +17,7 @@ pub const runeset = @import("runeset.zig");
 pub const data = @import("test-data.zig");
 
 const RuneSet = runeset.RuneSet;
+const RuneSetMemo = runeset.RuneSetMemo;
 const codeunit = elements.codeunit;
 
 const expect = std.testing.expect;
@@ -84,6 +85,24 @@ fn withSliceVerifySetProperties(strs: []const []const u8, alloc: Allocator) !voi
     const str = try std.mem.concat(alloc, u8, strs);
     defer alloc.free(str);
     try verifySetProperties(str, set, alloc);
+}
+
+fn verifyMemoMatchesSet(str: []const u8, set: RuneSet, alloc: Allocator) !void {
+    const memo = try RuneSetMemo.createFromRuneSet(set, alloc);
+    defer memo.deinit(alloc);
+    try expectEqual(set.body.len, memo.body.len);
+    try expectEqual(str.len, memo.matchMany(str).?);
+    try expectEqual(str.len, memo.matchManyAssumeValid(str));
+    try expectEqual(set.matchManyAllowInvalid("\x9fabc"), memo.matchManyAllowInvalid("\x9fabc"));
+
+    var idx: usize = 0;
+    while (idx < str.len) {
+        const slice = str[idx..];
+        const expected = set.matchOne(slice).?;
+        try expectEqual(expected, memo.matchOne(slice).?);
+        try expectEqual(set.matchOneAssumeValid(slice), memo.matchOneAssumeValid(slice));
+        idx += expected;
+    }
 }
 
 fn verifySetProperties(str: []const u8, set: RuneSet, alloc: Allocator) !void {
@@ -499,6 +518,27 @@ test "coverage cases" {
     try expectError(error.InvalidUnicode, RuneSet.createFromConstString("abc\xf0\x9f", allocator));
     // incomplete multibyte
     try expectError(error.InvalidUnicode, RuneSet.createFromConstString("λθ⌘\xf0abcde", allocator));
+}
+
+test "RuneSetMemo matches RuneSet" {
+    const allocator = testing.allocator;
+    const samples = [_]LRstrings{
+        ascii,
+        greek,
+        math,
+        linear_B,
+        deseret,
+        two_byte_feather,
+        cjk_chunk,
+        smp_scatter,
+        tangut_widechunk,
+        rand1,
+    };
+    for (samples) |sample| {
+        const set = try RuneSet.createFromConstString(sample.str, allocator);
+        defer set.deinit(allocator);
+        try verifyMemoMatchesSet(sample.str, set, allocator);
+    }
 }
 
 //| Test Data
