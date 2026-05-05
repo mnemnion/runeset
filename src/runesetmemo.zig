@@ -26,7 +26,7 @@ const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 /// three- and four-byted codepoints.  This makes time-to-match strictly
 /// independent of the size of the set: instead, it is O(n) where `n` is
 /// the number of codeunits in the codepoint tested.  As close to constant
-/// as any operation on utf-8 ever gets.
+/// as any operation on UTF-8 ever gets.
 pub const RuneSetMemo = struct {
     body: []const u64,
     offsets: []const u16,
@@ -50,7 +50,7 @@ pub const RuneSetMemo = struct {
         return createTakingBody(set.body, allocator);
     }
 
-    /// Create a RuneSetMEmo from a runeset.body, copying the data to a new slice.
+    /// Create a RuneSetMemo from a runeset.body, copying the data to a new slice.
     pub fn createFromBody(body: []const u64, allocator: Allocator) !RuneSetMemo {
         const owned_body = try allocator.alloc(u64, body.len);
         errdefer allocator.free(owned_body);
@@ -78,14 +78,18 @@ pub const RuneSetMemo = struct {
         return .{ .body = memo.body };
     }
 
+    /// Serialize a RuneSetMemo as a constant Zig variable named `name`.  The `public`
+    /// enum makes it uhh, `pub`, unless it's `.private`.  Of course.
     pub fn serialize(memo: RuneSetMemo, writer: anytype, public: RuneSet.Privacy, name: []const u8) !void {
         if (public == .public) {
             try writer.writeAll("pub ");
         }
         try writer.print("const {s}: RuneSetMemo = ", .{name});
         try memo.serializeBody(writer);
+        try writer.writeAll(";\n");
     }
 
+    /// Serialize just the body of a RuneSetMemo, in anonymous struct format.
     pub fn serializeBody(memo: RuneSetMemo, writer: anytype) !void {
         try writer.print(".{{ .body = &.{{ 0x{x}", .{memo.body[0]});
         for (memo.body[1..]) |word| {
@@ -95,7 +99,7 @@ pub const RuneSetMemo = struct {
         for (memo.offsets[1..]) |offset| {
             try writer.print(", {d}", .{offset});
         }
-        try writer.writeAll(" } };\n");
+        try writer.writeAll(" } }");
     }
 
     pub fn setUnion(L: RuneSetMemo, R: anytype, allocator: Allocator) error{OutOfMemory}!RuneSetMemo {

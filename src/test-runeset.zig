@@ -107,6 +107,51 @@ fn verifyMemoMatchesSet(str: []const u8, set: RuneSet, alloc: Allocator) !void {
     }
 }
 
+fn verifyMemoMatchesLR(s: LRstrings, alloc: Allocator) !void {
+    const memoL = try RuneSetMemo.createFromConstString(s.l, alloc);
+    defer memoL.deinit(alloc);
+    const memoR = try RuneSetMemo.createFromConstString(s.r, alloc);
+    defer memoR.deinit(alloc);
+
+    try expectEqual(s.l.len, memoL.matchMany(s.l).?);
+    try expectEqual(s.l.len, memoL.matchManyAssumeValid(s.l));
+    try expectEqual(s.r.len, memoR.matchMany(s.r).?);
+    try expectEqual(s.r.len, memoR.matchManyAssumeValid(s.r));
+    try testMemoMatchNone(memoL, s.r);
+    try testMemoMatchNone(memoR, s.l);
+}
+
+fn testMemoMatchNone(memo: RuneSetMemo, str: []const u8) !void {
+    var idx: usize = 0;
+    while (idx < str.len) {
+        const slice = str[idx..];
+        const nB = codeunit(slice[0]).nBytes() orelse 1;
+        try expectEqual(0, memo.matchOne(slice));
+        try expectEqual(0, memo.matchOneAssumeValid(slice));
+        idx += nB;
+    }
+}
+
+fn verifyMemoMatchesTwoLR(L: LRstrings, R: LRstrings, alloc: Allocator) !void {
+    const str = try std.mem.concat(alloc, u8, &.{ L.str, R.str });
+    defer alloc.free(str);
+    const l = try std.mem.concat(alloc, u8, &.{ L.l, R.l });
+    defer alloc.free(l);
+    const r = try std.mem.concat(alloc, u8, &.{ L.r, R.r });
+    defer alloc.free(r);
+
+    try verifyMemoMatchesLR(.{
+        .str = str,
+        .l = l,
+        .r = r,
+    }, alloc);
+    try verifyMemoMatchesLR(.{
+        .str = str,
+        .l = L.str,
+        .r = R.str,
+    }, alloc);
+}
+
 fn verifyMemoOffsetsAreBodyRelative(memo: RuneSetMemo) !void {
     for (memo.offsets[1..]) |offset| {
         try expect(offset < memo.body.len);
@@ -579,6 +624,53 @@ test "RuneSetMemo creates from strings" {
     try expectEqual(deseret.str.len, mutable_memo.matchMany(deseret.str).?);
 
     try expectError(error.InvalidUnicode, RuneSetMemo.createFromConstString("\xff\xff", allocator));
+}
+
+test "RuneSetMemo matches LR sides independently" {
+    const allocator = testing.allocator;
+    const samples = [_]LRstrings{
+        ascii,
+        greek,
+        math,
+        linear_B,
+        deseret,
+        two_byte_feather,
+        two_byte_chunk,
+        cjk_feather,
+        cjk_chunk,
+        cjk_chunk4k,
+        cjk_scatter,
+        pua_A_chunk,
+        pua_A_feather,
+        smp_chunk,
+        smp_scatter,
+        tangut_chunk,
+        tangut_widechunk,
+        tangut_scatter,
+        khitan_widechunk,
+        rand1,
+        rand2,
+    };
+    for (samples) |sample| {
+        try verifyMemoMatchesLR(sample, allocator);
+    }
+
+    try verifyMemoMatchesTwoLR(greek, math, allocator);
+    try verifyMemoMatchesTwoLR(deseret, greek, allocator);
+    try verifyMemoMatchesTwoLR(deseret, khitan_widechunk, allocator);
+    try verifyMemoMatchesTwoLR(greek, deseret, allocator);
+    try verifyMemoMatchesTwoLR(greek, cjk_scatter, allocator);
+    try verifyMemoMatchesTwoLR(cjk_chunk4k, greek, allocator);
+    try verifyMemoMatchesTwoLR(two_byte_chunk, khitan_widechunk, allocator);
+    try verifyMemoMatchesTwoLR(cjk_feather, khitan_widechunk, allocator);
+    try verifyMemoMatchesTwoLR(two_byte_feather, tangut_widechunk, allocator);
+    try verifyMemoMatchesTwoLR(ascii, deseret, allocator);
+    try verifyMemoMatchesTwoLR(cjk_scatter, math, allocator);
+    try verifyMemoMatchesTwoLR(math, cjk_chunk4k, allocator);
+    try verifyMemoMatchesTwoLR(khitan_widechunk, tangut_widechunk, allocator);
+    try verifyMemoMatchesTwoLR(smp_chunk, pua_A_feather, allocator);
+    try verifyMemoMatchesTwoLR(pua_A_chunk, smp_chunk, allocator);
+    try verifyMemoMatchesTwoLR(smp_chunk, cjk_chunk4k, allocator);
 }
 
 test "RuneSetMemo set operations match RuneSet" {
