@@ -158,6 +158,19 @@ fn verifyMemoOffsetsAreBodyRelative(memo: RuneSetMemo) !void {
     }
 }
 
+fn expectMemoStepMatch(memo: *const RuneSetMemo, str: []const u8) !void {
+    var st: RuneSetMemo.Step = .none;
+    for (str, 0..) |b, idx| {
+        st = memo.step(st, b);
+        if (idx + 1 == str.len) {
+            try expectEqual(RuneSetMemo.Step.match, st);
+        } else {
+            try expect(st != .none);
+            try expect(st != .match);
+        }
+    }
+}
+
 fn expectedMemoOffsetCount(memo: RuneSetMemo) usize {
     const t3_start = 4 + @popCount(memo.body[2]);
     const t2_memo_start = 4 + @popCount(memo.body[2] & codeunit(32).hiMask());
@@ -591,19 +604,7 @@ test "coverage cases" {
 
 test "RuneSetMemo matches RuneSet" {
     const allocator = testing.allocator;
-    const samples = [_]LRstrings{
-        ascii,
-        greek,
-        math,
-        linear_B,
-        deseret,
-        two_byte_feather,
-        cjk_chunk,
-        smp_scatter,
-        tangut_widechunk,
-        rand1,
-    };
-    for (samples) |sample| {
+    for (mini_samples) |sample| {
         const set = try RuneSet.createFromConstString(sample.str, allocator);
         defer set.deinit(allocator);
         try verifyMemoMatchesSet(sample.str, set, allocator);
@@ -624,6 +625,22 @@ test "RuneSetMemo creates from strings" {
     try expectEqual(deseret.str.len, mutable_memo.matchMany(deseret.str).?);
 
     try expectError(error.InvalidUnicode, RuneSetMemo.createFromConstString("\xff\xff", allocator));
+}
+
+test "RuneSetMemo steps one byte at a time" {
+    const allocator = testing.allocator;
+    for (mini_samples) |sample| {
+        const memo = try RuneSetMemo.createFromConstString(sample.str, allocator);
+        defer memo.deinit(allocator);
+
+        var idx: usize = 0;
+        while (idx < sample.str.len) {
+            const slice = sample.str[idx..];
+            const n_bytes = codeunit(slice[0]).nBytes().?;
+            try expectMemoStepMatch(&memo, slice[0..n_bytes]);
+            idx += n_bytes;
+        }
+    }
 }
 
 test "RuneSetMemo matches LR sides independently" {
@@ -774,6 +791,19 @@ const tangut_widechunk = data.tangut_widechunk;
 const khitan_widechunk = data.khitan_widechunk;
 const rand1 = data.rand1;
 const rand2 = data.rand2;
+
+const mini_samples = [_]LRstrings{
+    ascii,
+    greek,
+    math,
+    linear_B,
+    deseret,
+    two_byte_feather,
+    cjk_chunk,
+    smp_scatter,
+    tangut_widechunk,
+    rand1,
+};
 
 test "data integrity" {
     try std.testing.expectEqualStrings(pua_A_chunk.str, pua_A_feather.str);

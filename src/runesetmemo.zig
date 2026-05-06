@@ -31,6 +31,23 @@ pub const RuneSetMemo = struct {
     body: []const u64,
     offsets: []const u16,
 
+    /// A 'step' is our back-and-forth signal for running a
+    /// RuneSet(Memo) one step at a time.  See `runeset.step()`
+    /// for details.
+    pub const Step = enum(u32) {
+        none = 0,
+        match = std.math.maxInt(u32),
+        _,
+
+        pub fn offset(st: Step) u32 {
+            return switch (st) {
+                .none => 0,
+                .match => unreachable,
+                _ => @intFromEnum(st),
+            };
+        }
+    };
+
     /// Create a RuneSetMemo from a RuneSet, copying the body data to a new slice.
     pub fn createFromRuneSet(set: anytype, allocator: Allocator) !RuneSetMemo {
         return createFromBody(set.body, allocator);
@@ -148,6 +165,45 @@ pub const RuneSetMemo = struct {
             } else return null;
         }
         return idx;
+    }
+
+    /// 'Step' a RuneSet forward by one.  The returned Step is either a
+    /// match, a non-match, or a signal to continue stepping with the
+    /// next byte.  Asserts that `st` is not a `.match`.
+    pub fn step(memo: *const RuneSetMemo, st: Step, b: u8) Step {
+        assert(st != .match);
+
+        const body = memo.body;
+        const offsets = memo.offsets;
+        const cu = codeunit(b);
+
+        const off: usize = if (st == .none) switch (cu.kind) {
+            .follow => return .none,
+            .low => LOW,
+            .hi => HI,
+            .lead => LEAD,
+        } else @intCast(st.offset());
+        const mask = toMask(body[off]);
+        if (!mask.isIn(cu)) return .none;
+
+        switch (off) {
+            LOW, HI => return .match,
+            LEAD => return @enumFromInt(4 + mask.lowerThan(cu).?),
+            else => {},
+        }
+        const t2_end = 4 + @popCount(body[LEAD]);
+        const offset_start: usize = offsets[0];
+        if (off < t2_end) {
+            if (off <= offset_start) return .match;
+            const table_skip: usize = offsets[off - offset_start];
+            const word_skip = mask.higherThan(cu).?;
+            return @enumFromInt(t2_end + table_skip + word_skip);
+        }
+
+        if (off >= offset_start + offsets.len) return .match;
+        const table_skip: usize = offsets[off - offset_start];
+        const word_skip = mask.lowerThan(cu).?;
+        return @enumFromInt(body[T4_OFF] + table_skip + word_skip);
     }
 
     pub fn matchManyAllowInvalid(memo: RuneSetMemo, slice: []const u8) usize {
