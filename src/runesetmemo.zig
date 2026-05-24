@@ -147,6 +147,10 @@ pub const RuneSetMemo = struct {
         return matchOneDirectly(memo.body, memo.offsets, slice);
     }
 
+    pub fn isMatch(memo: *const RuneSetMemo, slice: []const u8) bool {
+        return if (memo.matchOne(slice)) |b| b > 0 else false;
+    }
+
     pub fn matchOneAllowInvalid(memo: RuneSetMemo, slice: []const u8) usize {
         return memo.matchOne(slice) orelse 0;
     }
