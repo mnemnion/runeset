@@ -2837,6 +2837,7 @@ pub const CodeUnit = elements.CodeUnit;
 /// codeunit(:u8) creates a CodeUnit
 pub const codeunit = elements.codeunit;
 pub const RuneSetMemo = @import("runesetmemo.zig").RuneSetMemo;
+pub const RuneMap = @import("runemap.zig").RuneMap;
 
 const testing = std.testing;
 const expect = testing.expect;

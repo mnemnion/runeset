@@ -1,68 +1,230 @@
-//! RuneMap: Maps from Runeset matches to some value.
-//!
+//! RuneMap: map RuneSetMemo matches to caller-provided values.
 
-/// A `RuneMap` provides the capacity to map a match to a value of type `T`.  Performance
-/// of this mapping is like that of `RuneSet` itself: efficient by design for many
-/// real sets of interest, but degrading for very large sets, or those of intermediate
-/// size which are sparse in the Unicode codepoint space.
-///
-/// The slice of `[]T` provided on initialization is asserted to have a length greater
-/// than or equal to the number of codepoints (runes) in the set.  A default value can
-/// be provided for when there is no match in the `RuneSet`.
-///
-/// Set operations on `RuneMap`s are also provided.  For difference and intersection, the
-/// second argument is a `RuneSet`, not a `RuneMap`, as these always result in an improper
-/// subset of the original set or map.  For a union, the second argument is a `RuneMap`,
-/// to provide missing values.  In safe modes, the value mapped to overlapping values is
-/// asserted to be identical during set union.  In other modes, it will be the value
-/// in the receiver map.
-pub fn RuneMap(T: type) type {
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+
+const elements = @import("elements.zig");
+const Mask = elements.Mask;
+const codeunit = elements.codeunit;
+const toMask = Mask.toMask;
+const RuneSetMemo = @import("runesetmemo.zig").RuneSetMemo;
+
+const LOW = 0;
+const HI = 1;
+const LEAD = 2;
+const T4_OFF = 3;
+
+const TWO_MAX = 32;
+const THREE_MAX = 48;
+
+const MASK_IN_TWO: u64 = codeunit(TWO_MAX).hiMask();
+const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
+
+/// Degree of index optimization to perform
+pub const OptKind = enum {
+    /// The index cache will have 'holes' for non-final bytes
+    none,
+    /// The index cache is dense, no attempt is made to make it smaller
+    dense,
+    /// Reasonable effort will be made to compress the final values array,
+    /// and the index cache will be dense
+    high,
+};
+
+/// A `RuneMap` provides the capacity to map a matched rune to a value of
+/// type `T`. The map owns its memoized set, its dense value slice, and its
+/// final-mask offset cache.
+pub fn RuneMap(T: type, opt: OptKind) type {
     return struct {
-        set: RuneSet,
+        set: RuneSetMemo,
         vals: []T,
+        offsets: []const u32,
         default: ?T,
 
         const RMap = @This();
 
-        /// Initialize a RuneMap from a string and a slice of the mapped values.
-        /// You may provide a default value, to return when there is no match,
-        /// or `null` to return null.  The value slice is assumed to be owned by
-        /// the RuneMap for `.deinit`, when this is
-        /// not the case, deinitialize the set separately: `rune_map.set.deinit(allocator)`,
-        pub fn init(allocator: Allocator, str: []const u8, vals: []T, default: ?T) Allocator.Error!RMap {
-            const set = try RuneSet.createFromConstString(str, allocator);
-            return initWithRuneSet(set, vals, default);
+        /// Initialize a RuneMap from a string and a dense slice of mapped
+        /// values. Values are expected to be in RuneSet iteration order.
+        pub fn init(allocator: Allocator, str: []const u8, vals: []T, default: ?T) !RMap {
+            const set = try RuneSetMemo.createFromConstString(str, allocator);
+            errdefer set.deinit(allocator);
+            return initWithRuneSetMemo(allocator, set, vals, default);
         }
 
-        /// Initialize a RuneMap with a RuneSet, and a slice of the mapped
-        /// values.  You may provide a default value, to return when there is no
-        /// match, or `null` to return null.  The value slice, and the set, are
-        /// assumed to be owned by the RuneMap for `.deinit`.
-        pub fn initWithRuneSet(set: RuneSet, vals: []T, default: ?T) RMap {
-            assert(set.runeCount() <= vals.len);
-            return .{ .set = set, .vals = vals, .default = default };
+        /// Initialize a RuneMap with an owned RuneSetMemo and owned values.
+        pub fn initWithRuneSetMemo(allocator: Allocator, set: RuneSetMemo, vals: []T, default: ?T) Allocator.Error!RMap {
+            assert(set.asRuneSet().runeCount() <= vals.len);
+            const offsets = try buildOffsets(set, allocator);
+            return .{
+                .set = set,
+                .vals = vals,
+                .offsets = offsets,
+                .default = default,
+            };
         }
 
         pub fn deinit(map: RMap, allocator: Allocator) void {
             map.set.deinit(allocator);
             allocator.free(map.vals);
+            allocator.free(map.offsets);
         }
 
-        /// Get the matching value for the codepoint encoded starting with slice[0].
-        /// If initialized with a default value, this function will always return a T.
+        /// Get the value mapped to the codepoint encoded at `slice[0..]`.
+        /// Invalid input and non-members return `default`.
         pub fn get(map: *const RMap, slice: []const u8) ?T {
-            const idx = map.set.matchOne(slice);
-            if (idx) |i| {
-                return map.vals[i];
-            } else {
-                return map.default;
+            const idx = map.indexOf(slice) orelse return map.default;
+            return map.vals[idx];
+        }
+
+        pub fn indexOf(map: *const RMap, slice: []const u8) ?usize {
+            if (slice.len == 0) return null;
+
+            const body = map.set.body;
+            const memo_offsets = map.set.offsets;
+            const a = codeunit(slice[0]);
+
+            switch (a.kind) {
+                .follow => return null,
+                .low => {
+                    const mask = toMask(body[LOW]);
+                    return intOrNull(mask.lowerThan(a));
+                },
+                .hi => {
+                    const mask = toMask(body[HI]);
+                    const base = @popCount(body[LOW]);
+                    return base + (intOrNull(mask.lowerThan(a)) orelse return null);
+                },
+                .lead => {
+                    const n_bytes = a.nMultiBytes() orelse return null;
+                    if (n_bytes > slice.len) return null;
+
+                    const a_mask = toMask(body[LEAD]);
+                    if (!a_mask.isIn(a)) return null;
+
+                    const b = codeunit(slice[1]);
+                    if (b.kind != .follow) return null;
+                    const b_loc = 4 + int(a_mask.lowerThan(a).?);
+                    const b_mask = toMask(body[b_loc]);
+                    if (!b_mask.isIn(b)) return null;
+                    if (n_bytes == 2) {
+                        return map.finalIndex(b_loc, b_mask.lowerThan(b).?);
+                    }
+
+                    const c = codeunit(slice[2]);
+                    if (c.kind != .follow) return null;
+                    const t3_start = t3start(body);
+                    const c_off = int(b_mask.higherThan(b).?) + t2Memo(memo_offsets, b_loc);
+                    const c_loc = t3_start + c_off;
+                    const c_mask = toMask(body[c_loc]);
+                    if (!c_mask.isIn(c)) return null;
+                    if (n_bytes == 3) {
+                        return map.finalIndex(c_loc, c_mask.lowerThan(c).?);
+                    }
+
+                    const d = codeunit(slice[3]);
+                    if (d.kind != .follow) return null;
+                    const d_off = int(c_mask.lowerThan(c).?) + t3Memo(memo_offsets, c_loc);
+                    const d_loc = t4offset(body) + d_off;
+                    const d_mask = toMask(body[d_loc]);
+                    if (!d_mask.isIn(d)) return null;
+                    return map.finalIndex(d_loc, d_mask.lowerThan(d).?);
+                },
             }
+        }
+
+        inline fn finalIndex(map: *const RMap, final_offset: usize, in_mask: u64) usize {
+            return @as(usize, map.offsets[final_offset - 4]) + int(in_mask);
         }
     };
 }
 
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const runeset = @import("runeset.zig");
-const RuneSet = runeset.RuneSet;
+fn buildOffsets(set: RuneSetMemo, allocator: Allocator) Allocator.Error![]const u32 {
+    const body = set.body;
+    const offsets = try allocator.alloc(u32, body.len - 4);
+    errdefer allocator.free(offsets);
+    @memset(offsets, 0);
+
+    const a_count = popCountSlice(body[LOW..LEAD]);
+    const b_count = popCountSlice(body[4..t2_3b_start(body)]);
+    const c_count = popCountSlice(body[t3_3c_start(body)..t3end(body)]);
+
+    var base = a_count;
+    for (4..t2_3b_start(body)) |off| {
+        offsets[off - 4] = @intCast(base);
+        base += @popCount(body[off]);
+    }
+
+    base = a_count + b_count;
+    var t3c_off = t3end(body);
+    while (t3c_off > t3_3c_start(body)) {
+        t3c_off -= 1;
+        offsets[t3c_off - 4] = @intCast(base);
+        base += @popCount(body[t3c_off]);
+    }
+
+    if (t4offset(body) != 0) {
+        base = a_count + b_count + c_count;
+        const t3_start = t3start(body);
+        var t3d_off = t3_3c_start(body);
+        while (t3d_off > t3_start) {
+            t3d_off -= 1;
+            const t4_start = t4offset(body) + popCountSlice(body[t3_start..t3d_off]);
+            const t4_end = t4_start + @popCount(body[t3d_off]);
+            for (t4_start..t4_end) |off| {
+                offsets[off - 4] = @intCast(base);
+                base += @popCount(body[off]);
+            }
+        }
+    }
+
+    return offsets;
+}
+
+inline fn t2_3b_start(body: []const u64) usize {
+    return 4 + @popCount(body[LEAD] & MASK_IN_TWO);
+}
+
+inline fn t2_4b_start(body: []const u64) usize {
+    return 4 + @popCount(body[LEAD] & MASK_OUT_FOUR);
+}
+
+inline fn t3start(body: []const u64) usize {
+    return 4 + @popCount(body[LEAD]);
+}
+
+inline fn t3_3c_start(body: []const u64) usize {
+    return t3start(body) + popCountSlice(body[t2_4b_start(body)..t3start(body)]);
+}
+
+inline fn t3end(body: []const u64) usize {
+    return if (body[T4_OFF] == 0) body.len else @intCast(body[T4_OFF]);
+}
+
+inline fn t4offset(body: []const u64) usize {
+    return @intCast(body[T4_OFF]);
+}
+
+inline fn t2Memo(offsets: []const u16, t2off: usize) usize {
+    return offsets[t2off - offsets[0]];
+}
+
+inline fn t3Memo(offsets: []const u16, t3off: usize) usize {
+    return offsets[t3off - offsets[0]];
+}
+
+fn popCountSlice(region: []const u64) usize {
+    var count: usize = 0;
+    for (region) |word| {
+        count += @popCount(word);
+    }
+    return count;
+}
+
+inline fn int(n: u64) usize {
+    return @intCast(n);
+}
+
+inline fn intOrNull(n: ?u64) ?usize {
+    return int(n orelse return null);
+}

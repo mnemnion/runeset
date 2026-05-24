@@ -18,6 +18,7 @@ pub const data = @import("test-data.zig");
 
 const RuneSet = runeset.RuneSet;
 const RuneSetMemo = runeset.RuneSetMemo;
+const RuneMap = runeset.RuneMap;
 const codeunit = elements.codeunit;
 
 const expect = std.testing.expect;
@@ -119,6 +120,29 @@ fn verifyMemoMatchesLR(s: LRstrings, alloc: Allocator) !void {
     try expectEqual(s.r.len, memoR.matchManyAssumeValid(s.r));
     try testMemoMatchNone(memoL, s.r);
     try testMemoMatchNone(memoR, s.l);
+}
+
+fn verifyRuneMapMatchesOrdinal(str: []const u8, allocator: Allocator) !void {
+    const memo = try RuneSetMemo.createFromConstString(str, allocator);
+    errdefer memo.deinit(allocator);
+
+    const vals = try allocator.alloc(usize, memo.asRuneSet().runeCount());
+    errdefer allocator.free(vals);
+    for (vals, 0..) |*val, idx| {
+        val.* = idx;
+    }
+
+    const map = try RuneMap(usize).initWithRuneSetMemo(allocator, memo, vals, null);
+    defer map.deinit(allocator);
+
+    var iter = map.set.asRuneSet().iterateRunes();
+    var expected: usize = 0;
+    while (iter.next()) |rune| {
+        try expectEqual(map.set.asRuneSet().ordinalMatch(rune).?, map.indexOf(rune).?);
+        try expectEqual(@as(?usize, expected), map.get(rune));
+        expected += 1;
+    }
+    try expectEqual(vals.len, expected);
 }
 
 fn testMemoMatchNone(memo: RuneSetMemo, str: []const u8) !void {
@@ -746,7 +770,7 @@ test "RuneSetMemo serializes declaration and body" {
 
     try expect(std.mem.startsWith(u8, body, ".{ .body = &.{ 0x0, 0x0, 0xc000"));
     try expect(std.mem.indexOf(u8, body, ".offsets = &.{") != null);
-    try expect(std.mem.endsWith(u8, body, " };\n"));
+    try expect(std.mem.endsWith(u8, body, " } }"));
 
     var serialized_array: std.ArrayList(u8) = .empty;
     defer serialized_array.deinit(allocator);
@@ -758,9 +782,44 @@ test "RuneSetMemo serializes declaration and body" {
     const expected = try std.mem.concat(allocator, u8, &.{
         "pub const greek_memo: RuneSetMemo = ",
         body,
+        ";\n",
     });
     defer allocator.free(expected);
     try expectEqualStrings(expected, serialized);
+}
+
+test "RuneMap gets dense values by matched rune" {
+    const allocator = testing.allocator;
+    const vals = try allocator.dupe(u16, &.{ 10, 20, 30, 40, 50 });
+    const map = try RuneMap(u16).init(allocator, "Azλ⌘𐐀", vals, 999);
+    defer map.deinit(allocator);
+
+    try expectEqual(@as(usize, map.set.body.len - 4), map.offsets.len);
+    try expectEqual(@as(?u16, 10), map.get("A"));
+    try expectEqual(@as(?u16, 20), map.get("z"));
+    try expectEqual(@as(?u16, 30), map.get("λ"));
+    try expectEqual(@as(?u16, 40), map.get("⌘"));
+    try expectEqual(@as(?u16, 50), map.get("𐐀"));
+    try expectEqual(@as(?u16, 999), map.get("B"));
+    try expectEqual(@as(?u16, 999), map.get("\x9f"));
+}
+
+test "RuneMap can return null for misses" {
+    const allocator = testing.allocator;
+    const vals = try allocator.dupe(u8, &.{ 1, 2, 3 });
+    const map = try RuneMap(u8).init(allocator, "abc", vals, null);
+    defer map.deinit(allocator);
+
+    try expectEqual(@as(usize, 0), map.offsets.len);
+    try expectEqual(@as(?u8, 1), map.get("a"));
+    try expectEqual(@as(?u8, null), map.get("d"));
+}
+
+test "RuneMap indices match RuneSet ordinals" {
+    const allocator = testing.allocator;
+    for (mini_samples) |sample| {
+        try verifyRuneMapMatchesOrdinal(sample.str, allocator);
+    }
 }
 
 //| Test Data
