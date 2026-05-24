@@ -11,25 +11,22 @@ const THREE_MAX = 48;
 const MASK_IN_TWO: u64 = codeunit(TWO_MAX).hiMask();
 const MASK_OUT_FOUR: u64 = codeunit(THREE_MAX).hiMask();
 
-/// Degree of index optimization to perform
+/// Kind of index optimization to perform: favor time or favor
+/// space.  Note that a RuneMap intended to be stepped does not
+/// benefit from the extra space taken by the .none variant, as
+/// such, stepping will not be available if that variant is
+/// chosen.
 pub const OptKind = enum {
-    /// The index cache will have 'holes' for non-final bytes
+    /// The index cache will have 'holes' for non-final bytes.
     none,
-    /// The index cache is dense, no attempt is made to make it smaller
+    /// The index cache is dense.
     dense,
-    /// Reasonable effort will be made to compress the final values array,
-    /// and the index cache will be dense
-    high,
 };
 
 /// A `RuneMap` provides the capacity to map a matched rune to a value of
 /// type `T`. The map owns its memoized set, its dense value slice, and its
 /// final-mask offset cache.
 pub fn RuneMap(T: type, opt: OptKind) type {
-    if (opt == .high) {
-        @compileError("RuneMap .high optimization is not implemented yet");
-    }
-
     return struct {
         set: RuneSetMemo,
         vals: []T,
@@ -209,7 +206,6 @@ pub fn RuneMap(T: type, opt: OptKind) type {
             return switch (opt) {
                 .none => final_offset - 4,
                 .dense => map.denseOffsetIndex(final_offset),
-                .high => unreachable,
             };
         }
 
@@ -231,7 +227,6 @@ fn buildOffsets(set: RuneSetMemo, comptime opt: OptKind, allocator: Allocator) O
     return switch (opt) {
         .none => buildSparseOffsets(set, allocator),
         .dense => buildDenseOffsets(set, allocator),
-        .high => unreachable,
     };
 }
 
