@@ -839,6 +839,60 @@ test "RuneMap dense offsets skip non-final masks" {
     try expectEqual(@as(?u16, 999), map.get("\x9f"));
 }
 
+test "RuneMap dense steps assign matched values" {
+    const allocator = testing.allocator;
+    const vals = try allocator.dupe(u16, &.{ 10, 20, 30, 40, 50 });
+    const map = try RuneMap(u16, .dense).init(allocator, "Azλ⌘𐐀", vals, 999);
+    defer map.deinit(allocator);
+
+    const samples = [_]struct {
+        str: []const u8,
+        val: u16,
+    }{
+        .{ .str = "A", .val = 10 },
+        .{ .str = "z", .val = 20 },
+        .{ .str = "λ", .val = 30 },
+        .{ .str = "⌘", .val = 40 },
+        .{ .str = "𐐀", .val = 50 },
+    };
+
+    for (samples) |sample| {
+        var st: RuneMap(u16, .dense).Step = .none;
+        var out: u16 = 0;
+        for (sample.str, 0..) |b, idx| {
+            st = map.step(st, b, &out);
+            if (idx + 1 == sample.str.len) {
+                try expectEqual(RuneMap(u16, .dense).Step.match, st);
+                try expectEqual(sample.val, out);
+            } else {
+                try expect(st != .none);
+                try expect(st != .match);
+                try expectEqual(@as(u16, 0), out);
+            }
+        }
+    }
+}
+
+test "RuneMap dense step assigns default only when available" {
+    const allocator = testing.allocator;
+
+    const default_vals = try allocator.dupe(u8, &.{ 1, 2, 3 });
+    const default_map = try RuneMap(u8, .dense).init(allocator, "abc", default_vals, 99);
+    defer default_map.deinit(allocator);
+
+    var default_out: u8 = 7;
+    try expectEqual(RuneMap(u8, .dense).Step.none, default_map.step(.none, 'd', &default_out));
+    try expectEqual(@as(u8, 99), default_out);
+
+    const null_vals = try allocator.dupe(u8, &.{ 1, 2, 3 });
+    const null_map = try RuneMap(u8, .dense).init(allocator, "abc", null_vals, null);
+    defer null_map.deinit(allocator);
+
+    var null_out: u8 = 7;
+    try expectEqual(RuneMap(u8, .dense).Step.none, null_map.step(.none, 'd', &null_out));
+    try expectEqual(@as(u8, 7), null_out);
+}
+
 test "RuneMap dense indices match RuneSet ordinals" {
     const allocator = testing.allocator;
     for (mini_samples) |sample| {

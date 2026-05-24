@@ -37,6 +37,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
         default: ?T,
 
         const RMap = @This();
+        pub const Step = RuneSetMemo.Step;
 
         /// Initialize a RuneMap from a string and a dense slice of mapped
         /// values. Values are expected to be in RuneSet iteration order,
@@ -128,6 +129,64 @@ pub fn RuneMap(T: type, opt: OptKind) type {
             }
         }
 
+        /// Step a RuneMap forward by one byte, assigning through `out` when
+        /// the step resolves to a match or to an available default.
+        pub fn step(map: *const RMap, st: Step, b: u8, out: *T) Step {
+            if (opt != .dense) @compileError("only implemented for .dense runemaps");
+            assert(st != .match);
+
+            const body = map.set.body;
+            const memo_offsets = map.set.offsets;
+            const cu = codeunit(b);
+
+            const off: usize = if (st == .none) switch (cu.kind) {
+                .follow => return map.stepDefault(out),
+                .low => LOW,
+                .hi => HI,
+                .lead => LEAD,
+            } else @intCast(st.offset());
+            const mask = toMask(body[off]);
+            if (!mask.isIn(cu)) return map.stepDefault(out);
+
+            switch (off) {
+                LOW => return map.stepMatch(out, mask.lowerThan(cu).?),
+                HI => return map.stepMatch(out, @popCount(body[LOW]) + mask.lowerThan(cu).?),
+                LEAD => return @enumFromInt(4 + mask.lowerThan(cu).?),
+                else => {},
+            }
+
+            const t2_end = t3start(body);
+            const offset_start: usize = memo_offsets[0];
+            if (off < t2_end) {
+                if (off <= offset_start) {
+                    return map.stepMatch(out, map.finalIndex(off, mask.lowerThan(cu).?));
+                }
+                const table_skip: usize = t2Memo(memo_offsets, off);
+                const word_skip = mask.higherThan(cu).?;
+                return @enumFromInt(t2_end + table_skip + word_skip);
+            }
+
+            if (off >= offset_start + memo_offsets.len) {
+                return map.stepMatch(out, map.finalIndex(off, mask.lowerThan(cu).?));
+            }
+
+            const table_skip: usize = t3Memo(memo_offsets, off);
+            const word_skip = mask.lowerThan(cu).?;
+            return @enumFromInt(t4offset(body) + table_skip + word_skip);
+        }
+
+        inline fn stepMatch(map: *const RMap, out: *T, idx: usize) Step {
+            out.* = map.vals[idx];
+            return .match;
+        }
+
+        inline fn stepDefault(map: *const RMap, out: *T) Step {
+            if (map.default) |default| {
+                out.* = default;
+            }
+            return .none;
+        }
+
         inline fn finalIndex(map: *const RMap, final_offset: usize, in_mask: u7) usize {
             const base: usize = map.offsets[map.offsetIndex(final_offset)];
             return base + in_mask;
@@ -146,6 +205,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
             if (final_offset < t2_3b_start(body)) {
                 return 2 + final_offset - 4;
             }
+            // TODO: probably reverse this and use body[T4_OFF]
             if (final_offset < t3end(body)) {
                 return final_offset - @as(usize, map.offsets[0]);
             }
