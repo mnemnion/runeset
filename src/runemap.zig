@@ -151,6 +151,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
             switch (off) {
                 LOW => return map.stepMatch(out, mask.lowerThan(cu).?),
                 HI => return map.stepMatch(out, @popCount(body[LOW]) + mask.lowerThan(cu).?),
+                // T1b next step
                 LEAD => return @enumFromInt(4 + mask.lowerThan(cu).?),
                 else => {},
             }
@@ -159,17 +160,24 @@ pub fn RuneMap(T: type, opt: OptKind) type {
             const offset_start: usize = memo_offsets[0];
             if (off < t2_end) {
                 if (off <= offset_start) {
-                    return map.stepMatch(out, map.finalIndex(off, mask.lowerThan(cu).?));
+                    return map.stepMatchFromOffset(out, 2 + off - 4, mask.lowerThan(cu).?);
                 }
+                // T2c next step
                 const table_skip: usize = t2Memo(memo_offsets, off);
                 const word_skip = mask.higherThan(cu).?;
                 return @enumFromInt(t2_end + table_skip + word_skip);
             }
 
             if (off >= offset_start + memo_offsets.len) {
-                return map.stepMatch(out, map.finalIndex(off, mask.lowerThan(cu).?));
+                const t4_start = t4offset(body);
+                const offset_idx = if (t4_start != 0 and off >= t4_start)
+                    off - @as(usize, map.offsets[1])
+                else
+                    off - @as(usize, map.offsets[0]);
+                return map.stepMatchFromOffset(out, offset_idx, mask.lowerThan(cu).?);
             }
 
+            // T3d next step
             const table_skip: usize = t3Memo(memo_offsets, off);
             const word_skip = mask.lowerThan(cu).?;
             return @enumFromInt(t4offset(body) + table_skip + word_skip);
@@ -178,6 +186,11 @@ pub fn RuneMap(T: type, opt: OptKind) type {
         inline fn stepMatch(map: *const RMap, out: *T, idx: usize) Step {
             out.* = map.vals[idx];
             return .match;
+        }
+
+        inline fn stepMatchFromOffset(map: *const RMap, out: *T, offset_idx: usize, in_mask: u7) Step {
+            const base: usize = map.offsets[offset_idx];
+            return map.stepMatch(out, base + in_mask);
         }
 
         inline fn stepDefault(map: *const RMap, out: *T) Step {
