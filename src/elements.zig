@@ -142,7 +142,7 @@ pub const Mask = struct {
 
     /// Return number of bytes lower than cu.body in mask,
     /// if cu inhabits the mask.  Otherwise return null.
-    pub inline fn lowerThan(self: Mask, cu: CodeUnit) ?u64 {
+    pub inline fn lowerThan(self: Mask, cu: CodeUnit) ?u7 {
         if (self.isIn(cu)) {
             const m = cu.hiMask();
             return @popCount(self.m & m);
@@ -153,7 +153,7 @@ pub const Mask = struct {
 
     /// Return number of bytes higher than cu.body in mask,
     /// if cu inhabits the mask.  Otherwise return null.
-    pub inline fn higherThan(self: Mask, cu: CodeUnit) ?u64 {
+    pub inline fn higherThan(self: Mask, cu: CodeUnit) ?u7 {
         if (self.isIn(cu)) {
             const m = cu.lowMask();
             return @popCount(self.m & m);

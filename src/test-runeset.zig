@@ -19,6 +19,7 @@ pub const data = @import("test-data.zig");
 const RuneSet = runeset.RuneSet;
 const RuneSetMemo = runeset.RuneSetMemo;
 const RuneMap = runeset.RuneMap;
+const OptKind = runeset.OptKind;
 const codeunit = elements.codeunit;
 
 const expect = std.testing.expect;
@@ -122,7 +123,7 @@ fn verifyMemoMatchesLR(s: LRstrings, alloc: Allocator) !void {
     try testMemoMatchNone(memoR, s.l);
 }
 
-fn verifyRuneMapMatchesOrdinal(str: []const u8, allocator: Allocator) !void {
+fn verifyRuneMapMatchesOrdinal(comptime opt: OptKind, str: []const u8, allocator: Allocator) !void {
     const memo = try RuneSetMemo.createFromConstString(str, allocator);
     errdefer memo.deinit(allocator);
 
@@ -132,7 +133,7 @@ fn verifyRuneMapMatchesOrdinal(str: []const u8, allocator: Allocator) !void {
         val.* = idx;
     }
 
-    const map = try RuneMap(usize).initWithRuneSetMemo(allocator, memo, vals, null);
+    const map = try RuneMap(usize, opt).initWithRuneSetMemo(allocator, memo, vals, null);
     defer map.deinit(allocator);
 
     var iter = map.set.asRuneSet().iterateRunes();
@@ -791,7 +792,7 @@ test "RuneSetMemo serializes declaration and body" {
 test "RuneMap gets dense values by matched rune" {
     const allocator = testing.allocator;
     const vals = try allocator.dupe(u16, &.{ 10, 20, 30, 40, 50 });
-    const map = try RuneMap(u16).init(allocator, "Azλ⌘𐐀", vals, 999);
+    const map = try RuneMap(u16, .none).init(allocator, "Azλ⌘𐐀", vals, 999);
     defer map.deinit(allocator);
 
     try expectEqual(@as(usize, map.set.body.len - 4), map.offsets.len);
@@ -807,7 +808,7 @@ test "RuneMap gets dense values by matched rune" {
 test "RuneMap can return null for misses" {
     const allocator = testing.allocator;
     const vals = try allocator.dupe(u8, &.{ 1, 2, 3 });
-    const map = try RuneMap(u8).init(allocator, "abc", vals, null);
+    const map = try RuneMap(u8, .none).init(allocator, "abc", vals, null);
     defer map.deinit(allocator);
 
     try expectEqual(@as(usize, 0), map.offsets.len);
@@ -818,7 +819,30 @@ test "RuneMap can return null for misses" {
 test "RuneMap indices match RuneSet ordinals" {
     const allocator = testing.allocator;
     for (mini_samples) |sample| {
-        try verifyRuneMapMatchesOrdinal(sample.str, allocator);
+        try verifyRuneMapMatchesOrdinal(.none, sample.str, allocator);
+    }
+}
+
+test "RuneMap dense offsets skip non-final masks" {
+    const allocator = testing.allocator;
+    const vals = try allocator.dupe(u16, &.{ 10, 20, 30, 40, 50 });
+    const map = try RuneMap(u16, .dense).init(allocator, "Azλ⌘𐐀", vals, 999);
+    defer map.deinit(allocator);
+
+    try expect(map.offsets.len < map.set.body.len - 4);
+    try expectEqual(@as(?u16, 10), map.get("A"));
+    try expectEqual(@as(?u16, 20), map.get("z"));
+    try expectEqual(@as(?u16, 30), map.get("λ"));
+    try expectEqual(@as(?u16, 40), map.get("⌘"));
+    try expectEqual(@as(?u16, 50), map.get("𐐀"));
+    try expectEqual(@as(?u16, 999), map.get("B"));
+    try expectEqual(@as(?u16, 999), map.get("\x9f"));
+}
+
+test "RuneMap dense indices match RuneSet ordinals" {
+    const allocator = testing.allocator;
+    for (mini_samples) |sample| {
+        try verifyRuneMapMatchesOrdinal(.dense, sample.str, allocator);
     }
 }
 
