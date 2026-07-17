@@ -2634,7 +2634,7 @@ fn matchOneDirectAssumeValid(set: []const u64, str: []const u8) usize {
 
 inline fn matchOneCursorImpl(set: []const u64, str: []const u8, cursor: *usize) bool {
     const a = codeunit(str[cursor.*]);
-    cursor += 1;
+    cursor.* += 1;
     switch (a.kind) {
         .follow => {
             return false;
@@ -2656,12 +2656,19 @@ inline fn matchOneCursorImpl(set: []const u64, str: []const u8, cursor: *usize) 
         .lead => {
             const nB = a.nMultiBytes() orelse return false;
             assert(nB > 1);
-            if (nB > str.len) return false;
+            const end = cursor.* + nB - 1;
+            if (end > str.len) {
+                cursor.* = end;
+                return false;
+            }
             const a_mask = toMask(set[LEAD]);
-            if (!a_mask.isIn(a)) return false;
+            if (!a_mask.isIn(a)) {
+                cursor.* = end;
+                return false;
+            }
             const b = codeunit(str[cursor.*]);
             if (b.kind != .follow) return false;
-            cursor += 1;
+            cursor.* += 1;
             const b_loc = 4 + a_mask.lowerThan(a).?;
             const b_mask = toMask(set[b_loc]);
             if (!b_mask.isIn(b)) {
@@ -2673,7 +2680,7 @@ inline fn matchOneCursorImpl(set: []const u64, str: []const u8, cursor: *usize) 
             const t3_off = 4 + @popCount(set[LEAD]);
             const c = codeunit(str[cursor.*]);
             if (c.kind != .follow) return false;
-            cursor += 1;
+            cursor.* += 1;
             // Slice is safe because we know the T2 span has at least one word.
             const c_off = b_mask.higherThan(b).? + popCountSlice(set[b_loc + 1 .. t3_off]);
             const c_loc = t3_off + c_off;
@@ -2687,7 +2694,7 @@ inline fn matchOneCursorImpl(set: []const u64, str: []const u8, cursor: *usize) 
             const d_off = c_mask.lowerThan(c).? + popCountSlice(set[t3_off..c_loc]);
             const d_loc = set[T4_OFF] + d_off;
             const d = codeunit(str[cursor.*]);
-            if (d.kind != .follow) return null;
+            if (d.kind != .follow) return false;
             cursor.* += 1;
             const d_mask = toMask(set[d_loc]);
             if (d_mask.isIn(d)) {
@@ -2722,8 +2729,8 @@ inline fn matchOneCursorAssumeValidImpl(set: []const u64, str: []const u8, curso
         .lead => {
             const nB = a.nMultiBytes().?;
             assert(nB > 1);
-            assert(nB + cursor.* - 1 <= str.len);
-            const new_cursor = cursor.* + nB;
+            const new_cursor = cursor.* + nB - 1;
+            assert(new_cursor <= str.len);
             const a_mask = toMask(set[LEAD]);
             if (!a_mask.isIn(a)) {
                 cursor.* = new_cursor;

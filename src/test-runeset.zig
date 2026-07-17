@@ -627,6 +627,53 @@ test "coverage cases" {
     try expectError(error.InvalidUnicode, RuneSet.createFromConstString("λθ⌘\xf0abcde", allocator));
 }
 
+test "matchOneCursor advances across matched and unmatched runes" {
+    const allocator = testing.allocator;
+    const set = try RuneSet.createFromConstString("aµह😀", allocator);
+    defer set.deinit(allocator);
+
+    var cursor: usize = 0;
+    try expect(set.matchOneCursor("aαह😀", &cursor));
+    try expectEqual(@as(usize, 1), cursor);
+    try expect(!set.matchOneCursor("aαह😀", &cursor));
+    try expectEqual(@as(usize, 3), cursor);
+    try expect(set.matchOneCursor("aαह😀", &cursor));
+    try expectEqual(@as(usize, 6), cursor);
+    try expect(set.matchOneCursor("aαह😀", &cursor));
+    try expectEqual(@as(usize, 10), cursor);
+
+    const ascii_set = try RuneSet.createFromConstString("a", allocator);
+    defer ascii_set.deinit(allocator);
+    cursor = 0;
+    try expect(!ascii_set.matchOneCursor("α", &cursor));
+    try expectEqual(@as(usize, "α".len), cursor);
+}
+
+test "matchOneCursorAssumeValid advances across matched and unmatched runes" {
+    const allocator = testing.allocator;
+    const set = try RuneSet.createFromConstString("aµह😀", allocator);
+    defer set.deinit(allocator);
+
+    const input = "aαह😀";
+    var cursor: usize = 0;
+    try expect(set.matchOneCursorAssumeValid(input, &cursor));
+    try expectEqual(@as(usize, 1), cursor);
+    try expect(!set.matchOneCursorAssumeValid(input, &cursor));
+    try expectEqual(@as(usize, 3), cursor);
+    try expect(set.matchOneCursorAssumeValid(input, &cursor));
+    try expectEqual(@as(usize, 6), cursor);
+    try expect(set.matchOneCursorAssumeValid(input, &cursor));
+    try expectEqual(@as(usize, 10), cursor);
+
+    const ascii_set = try RuneSet.createFromConstString("a", allocator);
+    defer ascii_set.deinit(allocator);
+    inline for (&.{ "α", "ह", "😀" }) |rune| {
+        cursor = 0;
+        try expect(!ascii_set.matchOneCursorAssumeValid(rune, &cursor));
+        try expectEqual(rune.len, cursor);
+    }
+}
+
 test "RuneSetMemo matches RuneSet" {
     const allocator = testing.allocator;
     for (mini_samples) |sample| {
