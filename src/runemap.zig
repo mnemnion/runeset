@@ -236,7 +236,7 @@ fn buildSparseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]const u32 {
     errdefer allocator.free(offsets);
     @memset(offsets, 0);
 
-    const a_count: usize = @popCount(body[LOW]) + @popCount(body[HI]);
+    const a_count: usize = @as(usize, @popCount(body[LOW])) + @popCount(body[HI]);
     const b_count = popCountSlice(body[4..t2_3b_start(body)]);
     const c_count = popCountSlice(body[t3_3c_start(body)..t3end(body)]);
 
@@ -293,7 +293,7 @@ fn buildDenseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]const u32 {
         break :blk @intCast(t4_start - t4_cache_start);
     };
 
-    const a_count: usize = @popCount(body[LOW]) + @popCount(body[HI]);
+    const a_count: usize = @as(usize, @popCount(body[LOW])) + @popCount(body[HI]);
     const b_count = popCountSlice(body[4..t2_3b_start(body)]);
     const c_count = popCountSlice(body[t3_3c_start(body)..t3end(body)]);
 
