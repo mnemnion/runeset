@@ -947,6 +947,15 @@ test "RuneMap dense indices match RuneSet ordinals" {
     }
 }
 
+test "RuneMap offsets include all ASCII values" {
+    const allocator = testing.allocator;
+    var all_ascii: [128]u8 = undefined;
+    for (&all_ascii, 0..) |*byte, value| byte.* = @intCast(value);
+
+    try verifyRuneMapMatchesOrdinal(.none, &all_ascii, allocator);
+    try verifyRuneMapMatchesOrdinal(.dense, &all_ascii, allocator);
+}
+
 //| Test Data
 //|
 //| An extensive collection of string data, meant to fully exercise the
