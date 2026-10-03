@@ -1051,7 +1051,7 @@ pub const RuneSet = struct {
             // T3s are tracked forward: highest lead byte to lowest.
             var LT3i = L.t3start();
             var RT3i = R.t3start();
-            // Debug tracking NT3, should be elided in release.
+            // Track NT3 only for safety checks.
             var NT3i: usize = 0;
             // T4 offsets forward: also highest lead to lowest.
             var NT4i: usize = 0;
@@ -1088,7 +1088,7 @@ pub const RuneSet = struct {
                                 };
                                 LT3i += 1;
                                 RT3i += 1;
-                                if (builtin.mode == .Debug) {
+                                if (is_safe) {
                                     assert(unionT3iter.mask.m == NT3[NT3i]);
                                     NT3i += 1;
                                 }
@@ -1110,11 +1110,11 @@ pub const RuneSet = struct {
                             } else if (LT2m.isElem(e3)) {
                                 const T4count = @popCount(Lbod[LT3i]);
                                 assert(T4count > 0);
-                                assert(Lbod[LT3i] == NT3[NT3i]);
-                                LT3i += 1;
-                                if (builtin.mode == .Debug) {
+                                if (is_safe) {
+                                    assert(Lbod[LT3i] == NT3[NT3i]);
                                     NT3i += 1;
                                 }
+                                LT3i += 1;
                                 for (0..T4count) |_| {
                                     NT4[NT4i] = Lbod[LT4i];
                                     NT4i += 1;
@@ -1124,11 +1124,11 @@ pub const RuneSet = struct {
                                 assert(RT2m.isElem(e3));
                                 const T4count = @popCount(Rbod[RT3i]);
                                 assert(T4count > 0);
-                                assert(Rbod[RT3i] == NT3[NT3i]);
-                                RT3i += 1;
-                                if (builtin.mode == .Debug) {
+                                if (is_safe) {
+                                    assert(Rbod[RT3i] == NT3[NT3i]);
                                     NT3i += 1;
                                 }
+                                RT3i += 1;
                                 for (0..T4count) |_| {
                                     NT4[NT4i] = Rbod[RT4i];
                                     NT4i += 1;
@@ -1145,11 +1145,11 @@ pub const RuneSet = struct {
                         for (0..T3count) |_| {
                             const T4count = @popCount(Lbod[LT3i]);
                             assert(T4count > 0);
-                            assert(Lbod[LT3i] == NT3[NT3i]);
-                            LT3i += 1;
-                            if (builtin.mode == .Debug) {
+                            if (is_safe) {
+                                assert(Lbod[LT3i] == NT3[NT3i]);
                                 NT3i += 1;
                             }
+                            LT3i += 1;
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Lbod[LT4i];
                                 LT4i += 1;
@@ -1164,11 +1164,11 @@ pub const RuneSet = struct {
                         assert(T3count > 0);
                         for (0..T3count) |_| {
                             const T4count = @popCount(Rbod[RT3i]);
-                            assert(Rbod[RT3i] == NT3[NT3i]);
-                            RT3i += 1;
-                            if (builtin.mode == .Debug) {
+                            if (is_safe) {
+                                assert(Rbod[RT3i] == NT3[NT3i]);
                                 NT3i += 1;
                             }
+                            RT3i += 1;
                             assert(T4count > 0);
                             for (0..T4count) |_| {
                                 NT4[NT4i] = Rbod[RT4i];
@@ -2832,6 +2832,7 @@ test compactSlice {
 
 const std = @import("std");
 const builtin = @import("builtin");
+const is_safe = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 
