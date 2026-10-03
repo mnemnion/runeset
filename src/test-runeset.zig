@@ -502,6 +502,10 @@ test "verify sets of LRstrings data" {
     try verifyLRSets(rand2, allocator);
 }
 
+test "set union tracks distinct four-byte masks in safe modes" {
+    try verifySetUnion("\u{10000}\u{11040}", "\u{10000}", "\u{11040}", testing.allocator);
+}
+
 test "set from slice properties" {
     const allocator = std.testing.allocator;
     const strs = .{ ascii.str, greek.str, math.str, linear_B.str, deseret.str, cjk_chunk.str };
@@ -956,6 +960,97 @@ test "RuneMap offsets include all ASCII values" {
     try verifyRuneMapMatchesOrdinal(.dense, &all_ascii, allocator);
 }
 
+fn verifyCompressedRuneMap(comptime opt: OptKind, allocator: Allocator, str: []const u8, constant: bool) !void {
+    const memo = try RuneSetMemo.createFromConstString(str, allocator);
+    var owns_memo = true;
+    defer if (owns_memo) memo.deinit(allocator);
+    const vals = try allocator.alloc(u16, memo.asRuneSet().runeCount());
+    defer allocator.free(vals);
+    for (vals, 0..) |*value, i| value.* = if (constant) 7 else @intCast((i * 7 + i / 19) % 13);
+    const original = try allocator.dupe(u16, vals);
+    defer allocator.free(original);
+
+    const map = try RuneMap(u16, opt).initWithRuneSetMemo(allocator, memo, vals, 999);
+    owns_memo = false;
+    defer map.deinit(allocator);
+    try testing.expectEqualSlices(u16, original, vals);
+    if (vals.len != 0) try expect(map.vals.ptr != vals.ptr);
+    try expect(map.vals.len <= vals.len);
+    var iter = map.set.asRuneSet().iterateRunes();
+    var ordinal: usize = 0;
+    while (iter.next()) |rune| : (ordinal += 1) {
+        try expectEqual(@as(?u16, vals[ordinal]), map.get(rune));
+        try expectEqual(vals[ordinal], map.vals[map.indexOf(rune).?]);
+        if (rune.len == 1) try expectEqual(ordinal, map.indexOf(rune).?);
+        var state: RuneMap(u16, opt).Step = .none;
+        var out: u16 = 1234;
+        for (rune, 0..) |byte, i| {
+            state = map.step(state, byte, &out);
+            if (i + 1 == rune.len) {
+                try expectEqual(RuneMap(u16, opt).Step.match, state);
+                try expectEqual(vals[ordinal], out);
+            } else {
+                try expect(state != .match and state != .none);
+                try expectEqual(@as(u16, 1234), out);
+            }
+        }
+    }
+    for ([_][]const u8{ "", "\x80", "\xc0", "\xe1\x80", "\xf1\x80\x80", "\xc2A", "\xe1\x80A", "\xf1\x80\x80A" }) |miss| {
+        try expectEqual(@as(?u16, 999), map.get(miss));
+    }
+    var out: u16 = 12;
+    try expectEqual(RuneMap(u16, opt).Step.none, map.step(.none, 0x80, &out));
+    try expectEqual(@as(u16, 999), out);
+}
+
+test "RuneMap compressed lookups and steps preserve all values" {
+    inline for (.{ OptKind.first_fit, OptKind.good_fit }) |opt| {
+        for (mini_samples) |sample| {
+            try verifyCompressedRuneMap(opt, testing.allocator, sample.str, false);
+            try verifyCompressedRuneMap(opt, testing.allocator, sample.str, true);
+        }
+        try verifyCompressedRuneMap(opt, testing.allocator, "", false);
+        try verifyCompressedRuneMap(opt, testing.allocator, "\xc0\x80\xed\xa0\x80\xf4\xbf\xbf\xbf\xf7\xbf\xbf\xbf", false);
+        var all_ascii: [128]u8 = undefined;
+        for (&all_ascii, 0..) |*byte, i| byte.* = @intCast(i);
+        try verifyCompressedRuneMap(opt, testing.allocator, &all_ascii, false);
+    }
+}
+
+test "RuneMap compressed arrays reuse ASCII and retain caller ownership" {
+    inline for (.{ OptKind.first_fit, OptKind.good_fit }) |opt| {
+        var vals = [_]u16{ 10, 20, 30, 20, 30, 40, 9999 };
+        const map = try RuneMap(u16, opt).init(testing.allocator, "ABCλμν", &vals, null);
+        defer map.deinit(testing.allocator);
+        try testing.expectEqualSlices(u16, &.{ 10, 20, 30, 40 }, map.vals);
+        try testing.expectEqualSlices(u16, &.{ 10, 20, 30, 20, 30, 40, 9999 }, &vals);
+        try expectEqual(@as(?usize, 1), map.indexOf("λ"));
+        try expectEqual(@as(?usize, 2), map.indexOf("μ"));
+        try expectEqual(@as(?usize, 3), map.indexOf("ν"));
+        try expectEqual(@as(?u16, null), map.get("Z"));
+        var out: u16 = 42;
+        try expectEqual(RuneMap(u16, opt).Step.none, map.step(.none, 'Z', &out));
+        try expectEqual(@as(u16, 42), out);
+    }
+}
+
+fn compressedAllocationFailures(allocator: Allocator, comptime opt: OptKind) !void {
+    try verifyCompressedRuneMap(opt, allocator, "ABCλμν⌘⌙⌚𐐀𐐁𐑀𐑁", false);
+    var vals = [_]u8{ 1, 2, 3, 1, 2, 3 };
+    const map = try RuneMap(u8, opt).init(allocator, "ABCλμν", &vals, null);
+    defer map.deinit(allocator);
+}
+
+test "RuneMap compressed allocation failures leave inputs owned by caller" {
+    inline for (.{ OptKind.first_fit, OptKind.good_fit }) |opt| {
+        try testing.checkAllAllocationFailures(testing.allocator, struct {
+            fn run(allocator: Allocator) !void {
+                try compressedAllocationFailures(allocator, opt);
+            }
+        }.run, .{});
+    }
+}
+
 //| Test Data
 //|
 //| An extensive collection of string data, meant to fully exercise the
@@ -1036,4 +1131,5 @@ comptime {
 // Inline tests of runeset.zig and all tests of element.zig
 comptime {
     std.testing.refAllDecls(@This());
+    std.testing.refAllDecls(@import("value_compression.zig"));
 }

@@ -21,11 +21,20 @@ pub const OptKind = enum {
     none,
     /// The index cache is dense.
     dense,
+    /// The values are first-fit compressed, the (dense) indices
+    /// point to their stripe of the values.
+    first_fit,
+    /// The values are compressed using a reasonable approximation
+    /// of an optimal fit, without exponential effort.
+    good_fit,
 };
 
 /// A `RuneMap` provides the capacity to map a matched rune to a value of
-/// type `T`. The map owns its memoized set, its dense value slice, and its
+/// type `T`. The map owns its memoized set, its value slice, and its
 /// final-mask offset cache.
+/// Compressed modes share structurally equal values, comparing pointers and
+/// slices by identity and floats by their exact bits. Untagged unions are
+/// unsupported in compressed modes.
 pub fn RuneMap(T: type, opt: OptKind) type {
     return struct {
         set: RuneSetMemo,
@@ -39,19 +48,33 @@ pub fn RuneMap(T: type, opt: OptKind) type {
         /// Initialize a RuneMap from a string and a dense slice of mapped
         /// values. Values are expected to be in RuneSet iteration order,
         /// which is the same as generalized UTF-8 lexicographical order.
+        /// On success, .none and .dense take ownership of `vals`. Compressed
+        /// modes allocate their own values and leave `vals` owned by the caller.
         pub fn init(allocator: Allocator, str: []const u8, vals: []T, default: ?T) !RMap {
             const set = try RuneSetMemo.createFromConstString(str, allocator);
             errdefer set.deinit(allocator);
             return initWithRuneSetMemo(allocator, set, vals, default);
         }
 
-        /// Initialize a RuneMap with an owned RuneSetMemo and owned values.
+        /// Take ownership of `set` on success. Values follow `init`'s ownership
+        /// rules; on failure, both inputs remain owned by the caller.
         pub fn initWithRuneSetMemo(allocator: Allocator, set: RuneSetMemo, vals: []T, default: ?T) OOM!RMap {
             assert(set.asRuneSet().runeCount() <= vals.len);
             const offsets = try buildOffsets(set, opt, allocator);
+            errdefer allocator.free(offsets);
+            const mapped_vals = if (opt == .first_fit or opt == .good_fit) blk: {
+                const stripes = try valueStripes(set, offsets, allocator);
+                defer allocator.free(stripes);
+                const packed_vals = if (opt == .first_fit)
+                    try compression.firstFit(T, allocator, vals, stripes)
+                else
+                    try compression.goodFit(T, allocator, vals, stripes);
+                for (stripes[1..]) |stripe| offsets[stripe.slot] = stripe.offset;
+                break :blk packed_vals;
+            } else vals;
             return .{
                 .set = set,
-                .vals = vals,
+                .vals = mapped_vals,
                 .offsets = offsets,
                 .default = default,
             };
@@ -129,7 +152,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
         /// Step a RuneMap forward by one byte, assigning through `out` when
         /// the step resolves to a match or to an available default.
         pub fn step(map: *const RMap, st: Step, b: u8, out: *T) Step {
-            if (opt != .dense) @compileError("only implemented for .dense runemaps");
+            if (opt == .none) @compileError("stepping requires dense RuneMap indices");
             assert(st != .match);
 
             const body = map.set.body;
@@ -205,7 +228,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
         inline fn offsetIndex(map: *const RMap, final_offset: usize) usize {
             return switch (opt) {
                 .none => final_offset - 4,
-                .dense => map.denseOffsetIndex(final_offset),
+                .dense, .first_fit, .good_fit => map.denseOffsetIndex(final_offset),
             };
         }
 
@@ -223,14 +246,14 @@ pub fn RuneMap(T: type, opt: OptKind) type {
     };
 }
 
-fn buildOffsets(set: RuneSetMemo, comptime opt: OptKind, allocator: Allocator) OOM![]const u32 {
+fn buildOffsets(set: RuneSetMemo, comptime opt: OptKind, allocator: Allocator) OOM![]u32 {
     return switch (opt) {
         .none => buildSparseOffsets(set, allocator),
-        .dense => buildDenseOffsets(set, allocator),
+        .dense, .first_fit, .good_fit => buildDenseOffsets(set, allocator),
     };
 }
 
-fn buildSparseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]const u32 {
+fn buildSparseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]u32 {
     const body = set.body;
     const offsets = try allocator.alloc(u32, body.len - 4);
     errdefer allocator.free(offsets);
@@ -272,7 +295,7 @@ fn buildSparseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]const u32 {
     return offsets;
 }
 
-fn buildDenseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]const u32 {
+fn buildDenseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]u32 {
     const body = set.body;
     const t2_start = 4;
     const t2_final_count = t2_3b_start(body) - t2_start;
@@ -329,6 +352,29 @@ fn buildDenseOffsets(set: RuneSetMemo, allocator: Allocator) OOM![]const u32 {
     return offsets;
 }
 
+fn valueStripes(set: RuneSetMemo, offsets: []const u32, allocator: Allocator) OOM![]Stripe {
+    const body = set.body;
+    const stripes = try allocator.alloc(Stripe, offsets.len - 1);
+    stripes[0] = .{ .start = 0, .len = @intCast(popCountSlice(body[LOW..LEAD])) };
+    const t2_count = t2_3b_start(body) - 4;
+    const t3_count = t3end(body) - t3_3c_start(body);
+    for (stripes[1..], 2..) |*stripe, slot| {
+        const off = if (slot < 2 + t2_count)
+            slot + 2
+        else if (slot < 2 + t2_count + t3_count)
+            slot + offsets[0]
+        else
+            slot + offsets[1];
+        stripe.* = .{ .start = offsets[slot], .len = @popCount(body[off]), .slot = @intCast(slot) };
+    }
+    std.mem.sort(Stripe, stripes[1..], {}, struct {
+        fn lessThan(_: void, a: Stripe, b: Stripe) bool {
+            return a.start < b.start;
+        }
+    }.lessThan);
+    return stripes;
+}
+
 inline fn t2_3b_start(body: []const u64) usize {
     return 4 + @popCount(body[LEAD] & MASK_IN_TWO);
 }
@@ -383,3 +429,5 @@ const Mask = elements.Mask;
 const codeunit = elements.codeunit;
 const toMask = Mask.toMask;
 const RuneSetMemo = @import("runesetmemo.zig").RuneSetMemo;
+const compression = @import("value_compression.zig");
+const Stripe = compression.Stripe;
