@@ -172,7 +172,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
                 LOW => return map.stepMatch(out, mask.lowerThan(cu).?),
                 HI => return map.stepMatch(out, @popCount(body[LOW]) + mask.lowerThan(cu).?),
                 // T1b next step
-                LEAD => return @enumFromInt(4 + mask.lowerThan(cu).?),
+                LEAD => return @fromBackingInt(@intCast(4 + mask.lowerThan(cu).?)),
                 else => {},
             }
 
@@ -185,7 +185,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
                 // T2c next step
                 const table_skip: usize = t2Memo(memo_offsets, off);
                 const word_skip = mask.higherThan(cu).?;
-                return @enumFromInt(t2_end + table_skip + word_skip);
+                return @fromBackingInt(@intCast(t2_end + table_skip + word_skip));
             }
 
             if (off >= offset_start + memo_offsets.len) {
@@ -200,7 +200,7 @@ pub fn RuneMap(T: type, opt: OptKind) type {
             // T3d next step
             const table_skip: usize = t3Memo(memo_offsets, off);
             const word_skip = mask.lowerThan(cu).?;
-            return @enumFromInt(t4offset(body) + table_skip + word_skip);
+            return @fromBackingInt(@intCast(t4offset(body) + table_skip + word_skip));
         }
 
         inline fn stepMatch(map: *const RMap, out: *T, idx: usize) Step {

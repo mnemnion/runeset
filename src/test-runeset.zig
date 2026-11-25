@@ -9,7 +9,7 @@ const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const builtin = @import("builtin");
 
-const safemode = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
+const safemode = builtin.mode == .debug or builtin.mode == .safe;
 
 pub const elements = @import("elements.zig");
 pub const runeset = @import("runeset.zig");

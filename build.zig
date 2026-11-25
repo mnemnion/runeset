@@ -88,10 +88,11 @@ pub fn build(b: *std.Build) void {
     const cov_run = b.addSystemCommand(&.{
         "kcov",
         "--clean",
-        "--include-pattern=src/",
-        "--exclude-line=unreachable,expect(false)",
-        "kcov-output",
+        "--exclude-line=unreachable,expect(false),@panic,kcov-defer-error,kcov-test-cleanup,kcov-miss",
     });
+    cov_run.addDirectoryArg2(b.path("src"), .{ .prefix = "--include-pattern=", .make_absolute = true });
+    cov_run.addArg("kcov-output");
     cov_run.addArtifactArg(lib_unit_tests);
+    cov_run.enableTestRunnerMode();
     cov_step.dependOn(&cov_run.step);
 }

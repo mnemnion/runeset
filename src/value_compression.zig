@@ -322,8 +322,8 @@ fn valueEql(a: anytype, b: @TypeOf(a)) bool {
     return switch (@typeInfo(T)) {
         .float => @as(@Int(.unsigned, @bitSizeOf(T)), @bitCast(a)) == @as(@Int(.unsigned, @bitSizeOf(T)), @bitCast(b)),
         .@"struct" => |info| blk: {
-            inline for (info.fields) |field| {
-                if (!valueEql(@field(a, field.name), @field(b, field.name))) break :blk false;
+            inline for (info.field_names) |field_name| {
+                if (!valueEql(@field(a, field_name), @field(b, field_name))) break :blk false;
             }
             break :blk true;
         },
@@ -351,8 +351,8 @@ fn valueHash(hasher: *std.hash.Wyhash, value: anytype) void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .float => std.hash.autoHash(hasher, @as(@Int(.unsigned, @bitSizeOf(T)), @bitCast(value))),
-        .@"struct" => |info| inline for (info.fields) |field| {
-            valueHash(hasher, @field(value, field.name));
+        .@"struct" => |info| inline for (info.field_names) |field_name| {
+            valueHash(hasher, @field(value, field_name));
         },
         .vector => |info| valueHash(hasher, @as([info.len]info.child, value)),
         .array => |info| for (0..info.len) |i| {
@@ -492,7 +492,7 @@ test "RuneMap good fit containment overlaps cycles and anchored ASCII" {
     try checkPacking(true, &.{ "", "XY", "AB", "QR" }, 6);
     try checkPacking(true, &.{ "", "", "" }, 0);
     try checkPacking(true, &.{"AAAA"}, 4);
-    const ascii = "x" ** 62 ++ "ABC" ++ "y" ** 60 ++ "DEF";
+    const ascii = @as([62]u8, @splat('x')) ++ "ABC" ++ @as([60]u8, @splat('y')) ++ "DEF";
     try checkPacking(true, &.{ ascii, "ABC", "DEFG" }, 129);
 }
 

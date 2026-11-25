@@ -711,7 +711,7 @@ pub const RuneSet = struct {
     // Return a tuple counting number of one, two, three, and four
     // byte codepoints.
     fn counts(self: RuneSet) struct { usize, usize, usize, usize } {
-        var c: [4]u64 = .{0} ** 4;
+        var c: [4]u64 = @splat(0);
         c[0] = self.countA();
         if (self.body[LEAD] == 0) return .{ c[0], c[1], c[2], c[3] };
         c[1] = self.countB();
@@ -914,7 +914,7 @@ pub const RuneSet = struct {
     /// Union of two `RuneSet`s.
     /// Free returned memory with `set.deinit(allocator)`.
     pub fn setUnion(L: RuneSet, R: RuneSet, allocator: Allocator) error{OutOfMemory}!RuneSet {
-        var header: [4]u64 = .{0} ** 4;
+        var header: [4]u64 = @splat(0);
         const Lbod = L.body;
         const Rbod = R.body;
         header[LOW] = Lbod[LOW] | Rbod[LOW];
@@ -926,7 +926,7 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // Tier 2
-        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        var NT2: [FOUR_MAX]u64 = @splat(0);
         L.spreadT2(&NT2);
         {
             var RT2i: usize = R.t2start();
@@ -1221,7 +1221,7 @@ pub const RuneSet = struct {
         }
         // Tier 2
         // We blow up LT2:
-        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        var NT2: [FOUR_MAX]u64 = @splat(0);
         L.spreadT2(&NT2);
         { // Take a union of LEADS.
             const unionLead = toMask(Rbod[LEAD] | Lbod[LEAD]);
@@ -1531,7 +1531,7 @@ pub const RuneSet = struct {
             return RuneSet{ .body = Nbod };
         }
         // No spreading L2 into NT2 this time, it would just create extra work.
-        var NT2: [FOUR_MAX]u64 = .{0} ** FOUR_MAX;
+        var NT2: [FOUR_MAX]u64 = @splat(0);
         // Must be reassigned to header[LEAD] before returning.
         var NLeadMask = toMask(header[LEAD]);
         const LT1m = L.maskAt(LEAD);
@@ -2204,7 +2204,7 @@ inline fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUn
     // The header handles all ASCII and lead bytes.  The fourth word
     // defines the offset into T4, which is zero unless the set contains
     // four-byte characters.
-    var header: [4]u64 = .{0} ** 4;
+    var header: [4]u64 = @splat(0);
     // We 'sieve' the string, taking characters in order of length,
     // and remove them from the string by moving all other characters
     // back.
@@ -2266,7 +2266,7 @@ inline fn createBodyFromString(str: []u8, allocator: Allocator) error{ InvalidUn
     sieve = sieve[0 .. sieve.len - back];
     // Sieve for second bytes.
     // Here we add an extra empty word to prevent a conditional later.
-    var T2: [FOUR_MAX + 1]u64 = .{0} ** (FOUR_MAX + 1); // Masks for all second bytes.
+    var T2: [FOUR_MAX + 1]u64 = @splat(0); // Masks for all second bytes.
     idx = 0;
     back = 0;
     while (idx < sieve.len) {
@@ -2517,7 +2517,7 @@ fn matchOneDirectly(set: []const u64, str: []const u8) ?usize {
 /// Lookup table mapping bytes to the amount of bytes taken
 /// by a valid codepoint which leads with that byte, or one.
 const advance_by: [256]u8 = advance: {
-    var advancer: [256]u8 = .{0} ** 256;
+    var advancer: [256]u8 = @splat(0);
     for (0..256) |busize| {
         const b: u8 = @intCast(busize);
         advancer[b] = codeunit(b).nBytes() orelse 1;
@@ -2832,7 +2832,7 @@ test compactSlice {
 
 const std = @import("std");
 const builtin = @import("builtin");
-const is_safe = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
+const is_safe = builtin.mode == .debug or builtin.mode == .safe;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 

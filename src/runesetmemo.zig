@@ -43,7 +43,7 @@ pub const RuneSetMemo = struct {
             return switch (st) {
                 .none => 0,
                 .match => unreachable,
-                _ => @intFromEnum(st),
+                _ => @backingInt(st),
             };
         }
     };
@@ -192,7 +192,7 @@ pub const RuneSetMemo = struct {
 
         switch (off) {
             LOW, HI => return .match,
-            LEAD => return @enumFromInt(4 + mask.lowerThan(cu).?),
+            LEAD => return @fromBackingInt(@intCast(4 + mask.lowerThan(cu).?)),
             else => {},
         }
         const t2_end = 4 + @popCount(body[LEAD]);
@@ -201,13 +201,13 @@ pub const RuneSetMemo = struct {
             if (off <= offset_start) return .match;
             const table_skip: usize = offsets[off - offset_start];
             const word_skip = mask.higherThan(cu).?;
-            return @enumFromInt(t2_end + table_skip + word_skip);
+            return @fromBackingInt(@intCast(t2_end + table_skip + word_skip));
         }
 
         if (off >= offset_start + offsets.len) return .match;
         const table_skip: usize = offsets[off - offset_start];
         const word_skip = mask.lowerThan(cu).?;
-        return @enumFromInt(body[T4_OFF] + table_skip + word_skip);
+        return @fromBackingInt(@intCast(body[T4_OFF] + table_skip + word_skip));
     }
 
     pub fn matchManyAllowInvalid(memo: RuneSetMemo, slice: []const u8) usize {

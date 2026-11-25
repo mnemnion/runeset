@@ -7,7 +7,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 const testing = std.testing;
 const assert = std.debug.assert;
-const safeMode = builtin.mode == .Debug or builtin.mode == .ReleaseSafe;
+const safeMode = builtin.mode == .debug or builtin.mode == .safe;
 
 /// Kinds of most significant bits in UTF-8
 pub const RuneKind = enum(u2) {

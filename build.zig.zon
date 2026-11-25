@@ -4,15 +4,15 @@
     // In a future version of Zig it will be used for package deduplication.
     .version = "0.10.1",
 
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.1",
 
     // What does this do, he wondered, putting it in all his libraries
     .fingerprint = 0x8edbb0dd5d839f5d,
 
     .dependencies = .{
         .ztap = .{
-            .url = "https://github.com/mnemnion/ztap/archive/refs/tags/v0.9.6.tar.gz",
-            .hash = "ztap-0.9.6-2runTcJZAAAGbmsi7tkHaVGweQCg2LncF_LSsAnvAMvs",
+            .url = "https://github.com/mnemnion/ztap/archive/refs/tags/v0.9.8.tar.gz",
+            .hash = "ztap-0.9.8-2runTfxaAABYR20E_LDP5CGTa2xs6Ulc0QzbGBQVBcbM",
         },
     },
 
